@@ -17,7 +17,11 @@ import {
   ChevronLeft,
   Trophy,
   Megaphone,
-  FileText
+  FileText,
+  Mail,
+  DollarSign,
+  Flame,
+  Award
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -25,11 +29,15 @@ import { Button } from '@/components/ui/button'
 const adminNavItems = [
   { id: 'dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, href: '/admin' },
   { id: 'users', label: 'المستخدمين', icon: Users, href: '/admin/users' },
+  { id: 'streaks', label: 'المسارات', icon: Flame, href: '/admin/streaks' },
+  { id: 'badges', label: 'الشارات', icon: Award, href: '/admin/badges' },
   { id: 'leaderboard', label: 'لوحة المتصدرين', icon: Trophy, href: '/admin/leaderboard' },
   { id: 'curriculum', label: 'المنهج', icon: BookOpen, href: '/admin/curriculum' },
   { id: 'announcements', label: 'الإعلانات', icon: Megaphone, href: '/admin/announcements' },
   { id: 'subscriptions', label: 'الاشتراكات', icon: CreditCard, href: '/admin/subscriptions' },
+  { id: 'manual-payments', label: 'الدفع اليدوي', icon: DollarSign, href: '/admin/manual-payments' },
   { id: 'invites', label: 'دعوات', icon: Ticket, href: '/admin/invites' },
+  { id: 'email', label: 'البريد الإلكتروني', icon: Mail, href: '/admin/email' },
   { id: 'analytics', label: 'الإحصائيات', icon: BarChart3, href: '/admin/analytics' },
   { id: 'audit-logs', label: 'سجل النشاط', icon: FileText, href: '/admin/audit-logs' },
   { id: 'settings', label: 'الإعدادات', icon: Settings, href: '/admin/settings' },

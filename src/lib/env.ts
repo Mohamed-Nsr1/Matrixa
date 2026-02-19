@@ -1,7 +1,8 @@
 /**
  * Environment Variables Validation
  * 
- * Validates required environment variables at startup
+ * Validates required environment variables at startup.
+ * SECURITY: No default secrets - all secrets must be explicitly configured.
  */
 
 import { z } from 'zod'
@@ -9,20 +10,19 @@ import { z } from 'zod'
 const envSchema = z.object({
   // Required
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
+  JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
-  NEXT_PUBLIC_APP_URL: z.string().url('NEXT_PUBLIC_APP_URL must be a valid URL'),
   
   // Optional but recommended
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   
-  // Payment (optional - for future Paymob integration)
+  // Payment (optional - for Paymob integration)
   PAYMOB_API_KEY: z.string().optional(),
   PAYMOB_INTEGRATION_ID: z.string().optional(),
   PAYMOB_IFRAME_ID: z.string().optional(),
   PAYMOB_HMAC_SECRET: z.string().optional(),
   
-  // Email (optional - for future SMTP integration)
+  // Email (optional - for SMTP integration)
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().optional(),
   SMTP_USER: z.string().optional(),
@@ -59,31 +59,17 @@ export function validateEnv(): Env {
       return `  - ${issue.path.join('.')}: ${issue.message}`
     }).join('\n')
     
-    console.error('\n❌ Environment validation failed:\n' + errors + '\n')
-    
-    // In development, allow missing optional vars
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('⚠️ Running in development mode with missing optional variables')
-      const partialEnv: Record<string, string | undefined> = {}
-      
-      // Get what we can from process.env
-      for (const key of Object.keys(envSchema.shape)) {
-        partialEnv[key] = process.env[key]
-      }
-      
-      // Set defaults for required fields if missing
-      if (!partialEnv.JWT_SECRET) {
-        partialEnv.JWT_SECRET = 'dev-jwt-secret-do-not-use-in-production-32ch'
-        console.warn('⚠️ Using default JWT_SECRET for development')
-      }
-      if (!partialEnv.JWT_REFRESH_SECRET) {
-        partialEnv.JWT_REFRESH_SECRET = 'dev-refresh-secret-do-not-use-in-prod-32ch'
-        console.warn('⚠️ Using default JWT_REFRESH_SECRET for development')
-      }
-      
-      validatedEnv = partialEnv as unknown as Env
-      return validatedEnv
-    }
+    console.error('\n' + '='.repeat(60))
+    console.error('ENVIRONMENT VALIDATION FAILED')
+    console.error('='.repeat(60))
+    console.error('\nThe following environment variables are missing or invalid:\n' + errors)
+    console.error('\nSECURITY: JWT secrets must be at least 32 characters.')
+    console.error('Generate secure secrets with: openssl rand -base64 32')
+    console.error('\nRequired environment variables:')
+    console.error('  - DATABASE_URL: Database connection string')
+    console.error('  - JWT_ACCESS_SECRET: Secret for access tokens (min 32 chars)')
+    console.error('  - JWT_REFRESH_SECRET: Secret for refresh tokens (min 32 chars)')
+    console.error('='.repeat(60) + '\n')
     
     throw new Error('Environment validation failed. See errors above.')
   }
@@ -119,7 +105,7 @@ export function logEnvWarnings() {
   }
   
   if (warnings.length > 0) {
-    console.log('\n⚠️ Optional services not configured:')
+    console.log('\nOptional services not configured:')
     warnings.forEach(w => console.log(`  - ${w}`))
     console.log('See FUTURE_UPGRADE_GUIDE.md for setup instructions\n')
   }

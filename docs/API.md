@@ -20,7 +20,8 @@
 12. [Subscription Endpoints](#subscription-endpoints)
 13. [Leaderboard Endpoints](#leaderboard-endpoints)
 14. [Announcement Endpoints](#announcement-endpoints)
-15. [Admin Endpoints](#admin-endpoints)
+15. [Manual Payment Endpoints](#manual-payment-endpoints)
+16. [Admin Endpoints](#admin-endpoints)
 
 ---
 
@@ -776,6 +777,251 @@ DELETE /api/notes/[id]
 
 ---
 
+## Notes Folders Endpoints
+
+### List Folders
+
+Get all folders with nested structure.
+
+```
+GET /api/notes/folders
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "folders": [
+    {
+      "id": "clx...",
+      "name": "Math Notes",
+      "color": "#8b5cf6",
+      "icon": "📁",
+      "parentId": null,
+      "order": 0,
+      "noteCount": 5,
+      "children": [
+        {
+          "id": "clx...",
+          "name": "Algebra",
+          "color": "#3b82f6",
+          "icon": "📐",
+          "parentId": "clx...",
+          "noteCount": 3,
+          "children": []
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### Create Folder
+
+Create a new folder.
+
+```
+POST /api/notes/folders
+```
+
+**Request Body:**
+```json
+{
+  "name": "Physics Notes",
+  "color": "#22c55e",
+  "icon": "⚛️",
+  "parentId": null
+}
+```
+
+---
+
+### Update Folder
+
+Update a folder.
+
+```
+PUT /api/notes/folders
+```
+
+**Request Body:**
+```json
+{
+  "id": "clx...",
+  "name": "Updated Name",
+  "color": "#ef4444",
+  "order": 1
+}
+```
+
+---
+
+### Delete Folder
+
+Delete a folder.
+
+```
+DELETE /api/notes/folders?id=clx...
+```
+
+---
+
+## Notes Tags Endpoints
+
+### List Tags
+
+Get all tags with note counts.
+
+```
+GET /api/notes/tags
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "tags": [
+    {
+      "id": "clx...",
+      "name": "important",
+      "color": "#ef4444",
+      "noteCount": 10
+    }
+  ]
+}
+```
+
+---
+
+### Create Tag
+
+Create a new tag.
+
+```
+POST /api/notes/tags
+```
+
+**Request Body:**
+```json
+{
+  "name": "review",
+  "color": "#f59e0b"
+}
+```
+
+---
+
+### Delete Tag
+
+Delete a tag.
+
+```
+DELETE /api/notes/tags?id=clx...
+```
+
+---
+
+## Notes Templates Endpoints
+
+### List Templates
+
+Get all available templates.
+
+```
+GET /api/notes/templates
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "templates": [
+    {
+      "id": "clx...",
+      "name": "Cornell Notes",
+      "nameAr": "طريقة كورنيل",
+      "description": "Structured note-taking method",
+      "type": "CORNELL",
+      "isSystem": true
+    }
+  ]
+}
+```
+
+**Template Types:**
+- `GENERAL` - General purpose
+- `CORNELL` - Cornell Notes method
+- `MINDMAP` - Mind map structure
+- `SUMMARY` - Summary template
+- `FLASHCARD` - Flashcard format
+- `STUDY_GUIDE` - Study guide format
+
+---
+
+## Badges Endpoints
+
+### Get All Badges
+
+Get all badges with user progress.
+
+```
+GET /api/badges
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "badges": [
+    {
+      "id": "clx...",
+      "nameAr": "7 أيام متتالية",
+      "nameEn": "7 Day Streak",
+      "descriptionAr": "حافظ على streak لمدة 7 أيام",
+      "descriptionEn": "Maintain a 7 day streak",
+      "icon": "🔥",
+      "color": "#f59e0b",
+      "type": "STREAK",
+      "requirement": 7,
+      "rarity": "UNCOMMON",
+      "xpReward": 50,
+      "earned": false,
+      "progress": 3
+    }
+  ],
+  "groupedBadges": {
+    "STREAK": [...],
+    "TASKS": [...],
+    "FOCUS": [...],
+    "SUBJECTS": [...],
+    "SPECIAL": [...]
+  },
+  "summary": {
+    "earned": 5,
+    "total": 20,
+    "percentage": 25
+  }
+}
+```
+
+**Badge Types:**
+- `STREAK` - Streak achievements
+- `TASKS` - Tasks completed
+- `FOCUS` - Focus sessions
+- `SUBJECTS` - Subject progress
+- `SPECIAL` - Special achievements
+
+**Badge Rarities:**
+- `COMMON`
+- `UNCOMMON`
+- `RARE`
+- `EPIC`
+- `LEGENDARY`
+
+---
+
 ## Focus Session Endpoints
 
 ### List Focus Sessions
@@ -1243,6 +1489,173 @@ GET /api/announcements
 
 ---
 
+## Manual Payment Endpoints
+
+Manual payment system for Egyptian mobile wallets and InstaPay.
+
+### Get Payment Settings (Public)
+
+Get public settings for manual payment (phone numbers, enabled methods).
+
+```
+GET /api/payment/manual/settings
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "settings": {
+    "manualPaymentEnabled": true,
+    "vodafoneCashNumber": "01xxxxxxxxx",
+    "etisalatCashNumber": "01xxxxxxxxx",
+    "orangeCashNumber": "01xxxxxxxxx",
+    "instaPayUsername": "@username",
+    "vodafoneCashEnabled": true,
+    "etisalatCashEnabled": true,
+    "orangeCashEnabled": false,
+    "instaPayEnabled": true
+  }
+}
+```
+
+---
+
+### List User's Payment Requests
+
+Get all payment requests for the current user.
+
+```
+GET /api/payment/manual
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "requests": [
+    {
+      "id": "clx...",
+      "amount": 99,
+      "paymentMethod": "VODAFONE_CASH",
+      "senderPhone": "01xxxxxxxxx",
+      "senderInstaPayUsername": null,
+      "receiptImageUrl": "/uploads/receipts/xxx.jpg",
+      "status": "PENDING",
+      "adminNotes": null,
+      "followUpMessage": null,
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "plan": {
+        "nameAr": "شهري",
+        "durationDays": 30
+      }
+    }
+  ]
+}
+```
+
+---
+
+### Submit Payment Request
+
+Submit a new manual payment request.
+
+```
+POST /api/payment/manual
+```
+
+**Request Body:**
+```json
+{
+  "planId": "clx...",
+  "paymentMethod": "VODAFONE_CASH",
+  "senderPhone": "01xxxxxxxxx",
+  "senderInstaPayUsername": null,
+  "receiptImageUrl": "/uploads/receipts/xxx.jpg"
+}
+```
+
+**Payment Methods:**
+- `VODAFONE_CASH` - Vodafone Cash mobile wallet
+- `ETISALAT_CASH` - Etisalat Cash (E&) mobile wallet
+- `ORANGE_CASH` - Orange Cash mobile wallet
+- `INSTAPAY` - InstaPay bank transfer
+
+**Validation Rules:**
+- For mobile wallets: `senderPhone` must be valid Egyptian format (01xxxxxxxxx)
+- For InstaPay: `senderInstaPayUsername` is required
+- User can only have one pending request at a time
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "message": "تم إرسال طلب الدفع بنجاح. سيتم مراجعته خلال 24 ساعة",
+  "request": { ... }
+}
+```
+
+**Errors:**
+- `400` - Invalid input or pending request already exists
+- `401` - Not authenticated
+
+---
+
+### Respond to Follow-up
+
+Respond to admin's follow-up request for more information.
+
+```
+PATCH /api/payment/manual
+```
+
+**Request Body:**
+```json
+{
+  "requestId": "clx...",
+  "userResponse": "This is the correct receipt",
+  "additionalReceiptUrl": "/uploads/receipts/xxx2.jpg"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "تم إرسال ردك بنجاح",
+  "request": {
+    "status": "INFO_PROVIDED",
+    ...
+  }
+}
+```
+
+---
+
+### Upload Receipt Image
+
+Upload a receipt/screenshot image.
+
+```
+POST /api/upload/receipt
+```
+
+**Request:** `multipart/form-data` with `file` field
+
+**File Requirements:**
+- Type: JPEG, JPG, PNG, or WebP
+- Maximum size: 10MB
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "url": "/uploads/receipts/xxx.jpg"
+}
+```
+
+---
+
 ## Admin Endpoints
 
 All admin endpoints require `ADMIN` role.
@@ -1562,7 +1975,14 @@ GET /api/admin/settings
     "trialDays": 14,
     "leaderboardEnabled": true,
     "testMode": true,
-    "maintenanceMode": false
+    "maintenanceMode": false,
+    "gracePeriodDays": 7,
+    "enableSignInRestriction": false,
+    "signInRestrictionDays": 30,
+    "expiredTimetableDays": 5,
+    "expiredNotesLimit": 20,
+    "expiredFocusSessionsLimit": 10,
+    "expiredPrivateLessonsLimit": 5
   }
 }
 ```
@@ -1708,6 +2128,278 @@ POST /api/admin/badges
 
 ---
 
+### Manual Payment Management
+
+#### List Payment Requests
+
+```
+GET /api/admin/manual-payments
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `status` | string | Filter by status: `PENDING`, `NEEDS_INFO`, `INFO_PROVIDED`, `APPROVED`, `REJECTED` |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "requests": [
+    {
+      "id": "clx...",
+      "amount": 99,
+      "paymentMethod": "VODAFONE_CASH",
+      "senderPhone": "01xxxxxxxxx",
+      "receiptImageUrl": "/uploads/receipts/xxx.jpg",
+      "status": "PENDING",
+      "adminNotes": null,
+      "followUpMessage": null,
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "user": {
+        "id": "clx...",
+        "email": "student@example.com",
+        "fullName": "Ahmed Mohamed",
+        "phone": "01xxxxxxxxx"
+      },
+      "plan": {
+        "nameAr": "شهري",
+        "price": 99,
+        "durationDays": 30
+      }
+    }
+  ]
+}
+```
+
+---
+
+#### Get Payment Request Details
+
+```
+GET /api/admin/manual-payments/[id]
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "request": {
+    "id": "clx...",
+    "amount": 99,
+    "paymentMethod": "VODAFONE_CASH",
+    "senderPhone": "01xxxxxxxxx",
+    "receiptImageUrl": "/uploads/receipts/xxx.jpg",
+    "additionalReceiptUrl": null,
+    "status": "PENDING",
+    "adminNotes": null,
+    "followUpMessage": null,
+    "userResponse": null,
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "user": {
+      "id": "clx...",
+      "email": "student@example.com",
+      "fullName": "Ahmed Mohamed",
+      "phone": "01xxxxxxxxx"
+    },
+    "plan": {
+      "id": "clx...",
+      "nameAr": "شهري",
+      "price": 99,
+      "durationDays": 30
+    }
+  }
+}
+```
+
+---
+
+#### Update Payment Request Status
+
+```
+PATCH /api/admin/manual-payments/[id]
+```
+
+**Request Body:**
+```json
+{
+  "action": "approve",
+  "adminNotes": "Payment verified"
+}
+```
+
+**Actions:**
+- `approve` - Approve payment and activate subscription
+- `reject` - Reject payment request
+- `follow_up` - Request more information from user
+
+**Follow-up Request:**
+```json
+{
+  "action": "follow_up",
+  "adminNotes": "Need more info",
+  "followUpMessage": "Please upload a clearer receipt image"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "تم قبول الدفع وتفعيل الاشتراك"
+}
+```
+
+**Payment Status Flow:**
+```
+PENDING → APPROVED (subscription activated)
+PENDING → REJECTED
+PENDING → NEEDS_INFO → INFO_PROVIDED → APPROVED/REJECTED
+```
+
+---
+
+### Email Tool
+
+#### List Email Templates
+
+```
+GET /api/admin/email/templates
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "templates": [
+    {
+      "id": "clx...",
+      "name": "Welcome Email",
+      "subject": "Welcome to Matrixa!",
+      "subjectAr": "مرحباً بك في ماتريكسا!",
+      "body": "<p>Hello {{userName}},</p>",
+      "bodyAr": "<p>مرحباً {{userName}}،</p>",
+      "type": "ONBOARDING",
+      "trigger": "WELCOME",
+      "isActive": true,
+      "isSystem": true,
+      "triggerOffset": 0
+    }
+  ]
+}
+```
+
+---
+
+#### Create/Update Email Template
+
+```
+POST /api/admin/email/templates
+PUT /api/admin/email/templates/[id]
+```
+
+**Request Body:**
+```json
+{
+  "name": "Subscription Ending",
+  "subject": "Your subscription is ending soon",
+  "subjectAr": "اشتراكك ينتهي قريباً",
+  "body": "<p>Hello {{userName}}, your subscription ends on {{subscriptionEnd}}.</p>",
+  "bodyAr": "<p>مرحباً {{userName}}، ينتهي اشتراكك في {{subscriptionEnd}}.</p>",
+  "type": "SUBSCRIPTION",
+  "trigger": "SUBSCRIPTION_ENDING",
+  "isActive": true,
+  "triggerOffset": -168
+}
+```
+
+**Available Triggers:**
+- `TRIAL_STARTED`, `TRIAL_ENDING`, `TRIAL_EXPIRED`
+- `SUBSCRIPTION_ACTIVE`, `SUBSCRIPTION_ENDING`, `SUBSCRIPTION_EXPIRED`
+- `GRACE_PERIOD_STARTED`, `GRACE_PERIOD_ENDING`
+- `ACCESS_DENIED`, `PAYMENT_SUCCESS`, `PAYMENT_FAILED`, `WELCOME`
+
+**Available Variables:**
+- `{{userName}}` - User's full name
+- `{{userEmail}}` - User's email
+- `{{subscriptionEnd}}` - Subscription end date
+- `{{gracePeriodEnd}}` - Grace period end date
+- `{{trialEnd}}` - Trial end date
+- `{{remainingDays}}` - Days remaining
+- `{{planName}}` - Plan name
+- `{{price}}` - Price
+
+---
+
+#### Delete Email Template
+
+```
+DELETE /api/admin/email/templates/[id]
+```
+
+---
+
+#### Send Emails
+
+```
+POST /api/admin/email/send
+```
+
+**Request Body:**
+```json
+{
+  "templateId": "clx...",
+  "recipients": [],
+  "customSubject": "",
+  "customBody": "",
+  "recipientFilter": "expired"
+}
+```
+
+**Recipient Filters:**
+- `all` - All students
+- `active` - Active subscribers
+- `trial` - Trial users
+- `expired` - Expired subscriptions
+- `custom` - Specific user IDs in `recipients` array
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "sent": 15,
+  "failed": 0
+}
+```
+
+---
+
+#### Get Email Logs
+
+```
+GET /api/admin/email/logs?limit=50
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "logs": [
+    {
+      "id": "clx...",
+      "email": "student@example.com",
+      "userName": "Ahmed M.",
+      "subject": "Welcome to Matrixa!",
+      "status": "SENT",
+      "sentAt": "2024-01-15T10:00:00.000Z",
+      "createdAt": "2024-01-15T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
 ## Related Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture
@@ -1716,4 +2408,4 @@ POST /api/admin/badges
 
 ---
 
-*Last updated: 2025-01-18*
+*Last updated: 2025-01-19*

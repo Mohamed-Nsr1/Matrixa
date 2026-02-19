@@ -1,15 +1,18 @@
 /**
  * Admin Curriculum Import API
  * Import curriculum data from file (JSON, CSV, XLSX)
+ * 
+ * SECURITY: Content-based file validation to prevent malicious uploads
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
+import { prisma } from '@/lib/db'
 import {
   parseImportFile,
   validateImportData,
   importCurriculum,
-  detectFileFormat,
+  validateImportFile,
   type ImportMode
 } from '@/lib/curriculum-import'
 
@@ -44,35 +47,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024
-    if (file.size > maxSize) {
-      return NextResponse.json(
-        { success: false, error: 'حجم الملف يتجاوز الحد الأقصى (10 ميجابايت)' },
-        { status: 400 }
-      )
-    }
+    // Read file content
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
 
-    // Detect file format
-    const format = detectFileFormat(file.name, file.type)
-    if (!format) {
+    // SECURITY: Validate file content using magic bytes
+    const fileValidation = validateImportFile(buffer, file.name, file.type)
+    if (!fileValidation.valid) {
       return NextResponse.json(
         { 
           success: false, 
-          error: 'صيغة الملف غير مدعومة. استخدم JSON أو CSV أو XLSX' 
+          error: fileValidation.error || 'Invalid file'
         },
         { status: 400 }
       )
     }
 
-    // Read file content
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-
-    // Parse file
+    // Parse file (we know format is valid now)
     let data
     try {
-      data = parseImportFile(buffer, format)
+      data = parseImportFile(buffer, fileValidation.format!)
     } catch (parseError) {
       return NextResponse.json(
         { 
@@ -107,15 +101,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Warning for replace mode
-    if (mode === 'replace') {
-      // Count existing curriculum
-      // const existingCount = await prisma.lesson.count()
-      // Could add confirmation requirement here
-    }
-
     // Import data
     const result = await importCurriculum(data, mode)
+
+    // Create audit log
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'CURRICULUM_IMPORT',
+        entityType: 'Curriculum',
+        newValue: JSON.stringify({
+          mode,
+          format: fileValidation.format,
+          totalRows: result.totalRows,
+          created: result.created,
+          updated: result.updated
+        })
+      }
+    })
 
     return NextResponse.json({
       success: result.success,
@@ -132,7 +135,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { 
         success: false, 
-        error: `حدث خطأ أثناء الاستيراد: ${error instanceof Error ? error.message : 'خطأ غير معروف'}` 
+        error: 'حدث خطأ أثناء الاستيراد'
       },
       { status: 500 }
     )

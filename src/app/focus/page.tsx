@@ -86,6 +86,8 @@ export default function FocusPage() {
     brainDump?: string
     subjectName?: string
     lessonName?: string
+    subjectId?: string
+    lessonId?: string
   } | null>(null)
 
   // Use ref to track if session is complete for callback
@@ -144,7 +146,9 @@ export default function FocusPage() {
       revisionsCompleted,
       brainDump: brainDump || undefined,
       subjectName: getSelectedSubjectName(),
-      lessonName: getSelectedLessonName()
+      lessonName: getSelectedLessonName(),
+      subjectId: selectedSubjectId && selectedSubjectId !== 'none' ? selectedSubjectId : undefined,
+      lessonId: selectedLessonId && selectedLessonId !== 'none' ? selectedLessonId : undefined
     })
 
     // Show summary modal

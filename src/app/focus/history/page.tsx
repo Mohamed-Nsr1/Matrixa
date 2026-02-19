@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { 
   ArrowRight,
   Clock, 
@@ -11,7 +12,9 @@ import {
   Calendar,
   BookOpen,
   Filter,
-  X
+  X,
+  Lock,
+  Eye
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +26,8 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useSubscription } from '@/contexts/SubscriptionContext'
+import UpgradeModal from '@/components/subscription/UpgradeModal'
 
 interface FocusSession {
   id: string
@@ -50,10 +55,20 @@ interface Subject {
 
 export default function FocusHistoryPage() {
   const router = useRouter()
+  const { isReadOnly, getFeatureLimit, isActive, isInTrial, isInGracePeriod } = useSubscription()
   const [sessions, setSessions] = useState<FocusSession[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('all')
   const [loading, setLoading] = useState(true)
+
+  // Get the limit for focus sessions for expired users
+  const sessionsLimit = getFeatureLimit('focusSessions')
+
+  // Apply limit to sessions for expired users
+  const limitedSessions = useMemo(() => {
+    if (isActive || isInTrial || isInGracePeriod) return sessions
+    return sessions.slice(0, sessionsLimit)
+  }, [sessions, isActive, isInTrial, isInGracePeriod, sessionsLimit])
 
   useEffect(() => {
     fetchSessions()
@@ -124,7 +139,7 @@ export default function FocusHistoryPage() {
   }
 
   // Group sessions by date
-  const groupedSessions = sessions.reduce((groups, session) => {
+  const groupedSessions = limitedSessions.reduce((groups, session) => {
     const date = new Date(session.startedAt).toDateString()
     if (!groups[date]) {
       groups[date] = []
@@ -134,10 +149,10 @@ export default function FocusHistoryPage() {
   }, {} as Record<string, FocusSession[]>)
 
   // Calculate stats
-  const totalMinutes = sessions.reduce((acc, s) => acc + (s.actualDuration || s.duration) / 60, 0)
-  const totalVideos = sessions.reduce((acc, s) => acc + s.videosWatched, 0)
-  const totalQuestions = sessions.reduce((acc, s) => acc + s.questionsSolved, 0)
-  const totalRevisions = sessions.reduce((acc, s) => acc + s.revisionsCompleted, 0)
+  const totalMinutes = limitedSessions.reduce((acc, s) => acc + (s.actualDuration || s.duration) / 60, 0)
+  const totalVideos = limitedSessions.reduce((acc, s) => acc + s.videosWatched, 0)
+  const totalQuestions = limitedSessions.reduce((acc, s) => acc + s.questionsSolved, 0)
+  const totalRevisions = limitedSessions.reduce((acc, s) => acc + s.revisionsCompleted, 0)
 
   return (
     <div className="min-h-screen bg-background pb-20" dir="rtl">
@@ -156,6 +171,26 @@ export default function FocusHistoryPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6">
+        {/* Read-Only Warning Banner */}
+        {isReadOnly && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <div className="flex items-center gap-3">
+              <Lock className="w-5 h-5 text-amber-500 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="font-medium text-amber-400">وضع القراءة فقط</p>
+                <p className="text-sm text-muted-foreground">
+                  انتهى اشتراكك. يمكنك مشاهدة {sessionsLimit} جلسة فقط. جدد اشتراكك للوصول الكامل.
+                </p>
+              </div>
+              <Link href="/subscription">
+                <Button size="sm" className="bg-amber-500 hover:bg-amber-600">
+                  تجديد الاشتراك
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* Stats Summary */}
         <div className="grid grid-cols-4 gap-2 mb-6">
           <div className="bg-card rounded-xl p-3 text-center border">
@@ -202,7 +237,7 @@ export default function FocusHistoryPage() {
           <div className="flex items-center justify-center py-12">
             <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : sessions.length === 0 ? (
+        ) : limitedSessions.length === 0 ? (
           <div className="text-center py-12">
             <Clock className="w-12 h-12 text-muted-foreground/50 mx-auto mb-3" />
             <p className="text-muted-foreground">لا توجد جلسات سابقة</p>
@@ -305,6 +340,9 @@ export default function FocusHistoryPage() {
           </ScrollArea>
         )}
       </main>
+
+      {/* Upgrade Modal */}
+      <UpgradeModal />
     </div>
   )
 }

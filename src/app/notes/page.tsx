@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import {
   BookOpen,
@@ -13,11 +13,33 @@ import {
   Plus,
   Loader2,
   LayoutGrid,
+  List,
   Layers,
   ChevronDown,
   ChevronLeft,
   FileText,
-  X
+  X,
+  Star,
+  Pin,
+  Archive,
+  Trash2,
+  MoreHorizontal,
+  Sparkles,
+  Filter,
+  SortAsc,
+  Grid3X3,
+  Palette,
+  Tag,
+  FolderPlus,
+  Keyboard,
+  Moon,
+  Sun,
+  Eye,
+  Edit3,
+  Copy,
+  Share2,
+  Download,
+  Lock
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,12 +54,31 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuCheckboxItem
+} from '@/components/ui/dropdown-menu'
+import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger
 } from '@/components/ui/accordion'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { useSubscription, useCanWrite } from '@/contexts/SubscriptionContext'
+import UpgradeModal from '@/components/subscription/UpgradeModal'
 import NoteModal from '@/components/notes/NoteModal'
 import NoteCard from '@/components/notes/NoteCard'
 import type { NoteFrontend as Note } from '@/types'
@@ -74,24 +115,57 @@ const navItems = [
   { id: 'insights', label: 'الإحصائيات', icon: BarChart3, href: '/insights' },
 ]
 
-type ViewMode = 'all' | 'grouped'
+type ViewMode = 'grid' | 'list' | 'compact'
+type SortOption = 'updated' | 'created' | 'title' | 'subject'
+
+// Color palette for notes
+const noteColors = [
+  { name: 'Default', value: null },
+  { name: 'Red', value: '#ef4444' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Amber', value: '#f59e0b' },
+  { name: 'Yellow', value: '#eab308' },
+  { name: 'Lime', value: '#84cc16' },
+  { name: 'Green', value: '#22c55e' },
+  { name: 'Emerald', value: '#10b981' },
+  { name: 'Teal', value: '#14b8a6' },
+  { name: 'Cyan', value: '#06b6d4' },
+  { name: 'Sky', value: '#0ea5e9' },
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Indigo', value: '#6366f1' },
+  { name: 'Violet', value: '#8b5cf6' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Fuchsia', value: '#d946ef' },
+  { name: 'Pink', value: '#ec4899' },
+  { name: 'Rose', value: '#f43f5e' },
+]
 
 export default function NotesPage() {
   const { toast } = useToast()
+  const { canWrite, requireWrite, isReadOnly, getFeatureLimit, isActive, isInTrial, isInGracePeriod } = useCanWrite()
+  const subscription = useSubscription()
   const [user, setUser] = useState<User | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [viewMode, setViewMode] = useState<ViewMode>('all')
+  const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [sortBy, setSortBy] = useState<SortOption>('updated')
   const [filterSubjectId, setFilterSubjectId] = useState<string | null>(null)
   const [filterLessonId, setFilterLessonId] = useState<string | null>(null)
+  const [showFavorites, setShowFavorites] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  const [selectedColor, setSelectedColor] = useState<string | null>(null)
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
 
   // Modal states
   const [showModal, setShowModal] = useState(false)
   const [editingNote, setEditingNote] = useState<Note | null>(null)
   const [defaultSubjectId, setDefaultSubjectId] = useState<string | null>(null)
   const [defaultLessonId, setDefaultLessonId] = useState<string | null>(null)
+
+  // Get the limit for notes for expired users
+  const notesLimit = subscription.getFeatureLimit('notes')
 
   useEffect(() => {
     const fetchData = async () => {
@@ -132,6 +206,52 @@ export default function NotesPage() {
     fetchData()
   }, [])
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      // N - New note
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault()
+        handleCreateNote()
+      }
+
+      // / - Focus search
+      if (e.key === '/') {
+        e.preventDefault()
+        document.getElementById('search-input')?.focus()
+      }
+
+      // F - Toggle favorites
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        setShowFavorites(!showFavorites)
+      }
+
+      // 1, 2, 3 - Switch view modes
+      if (e.key === '1') setViewMode('grid')
+      if (e.key === '2') setViewMode('list')
+      if (e.key === '3') setViewMode('compact')
+
+      // Escape - Clear filters
+      if (e.key === 'Escape') {
+        clearFilters()
+      }
+
+      // ? - Show shortcuts
+      if (e.key === '?') {
+        setShowKeyboardShortcuts(prev => !prev)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showFavorites])
+
   // Get all lessons for filter dropdown
   const allLessons = useMemo(() => {
     if (!filterSubjectId) return []
@@ -147,9 +267,19 @@ export default function NotesPage() {
     )
   }, [subjects, filterSubjectId])
 
-  // Filter notes based on search and filters
+  // Filter and sort notes
   const filteredNotes = useMemo(() => {
-    return notes.filter(note => {
+    let result = notes.filter(note => {
+      // Don't show archived notes unless explicitly requested
+      if (!showArchived && note.isArchived) return false
+      if (showArchived && !note.isArchived) return false
+
+      // Favorites filter
+      if (showFavorites && !note.isFavorite) return false
+
+      // Color filter
+      if (selectedColor && note.color !== selectedColor) return false
+
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase()
@@ -173,7 +303,34 @@ export default function NotesPage() {
 
       return true
     })
-  }, [notes, searchQuery, filterSubjectId, filterLessonId])
+
+    // Sort
+    result.sort((a, b) => {
+      // Pinned first
+      if (a.isPinned && !b.isPinned) return -1
+      if (!a.isPinned && b.isPinned) return 1
+
+      switch (sortBy) {
+        case 'updated':
+          return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+        case 'created':
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        case 'title':
+          return (a.title || '').localeCompare(b.title || '', 'ar')
+        case 'subject':
+          return (a.subject?.nameAr || '').localeCompare(b.subject?.nameAr || '', 'ar')
+        default:
+          return 0
+      }
+    })
+
+    // Limit for expired users (only for read-only users)
+    if (isReadOnly && !isActive && !isInTrial && !isInGracePeriod) {
+      result = result.slice(0, notesLimit)
+    }
+
+    return result
+  }, [notes, searchQuery, filterSubjectId, filterLessonId, showFavorites, showArchived, selectedColor, sortBy, isReadOnly, isActive, isInTrial, isInGracePeriod, notesLimit])
 
   // Group notes by subject
   const groupedNotes = useMemo(() => {
@@ -222,21 +379,33 @@ export default function NotesPage() {
     return groups
   }, [subjects, filteredNotes])
 
-  const handleCreateNote = () => {
+  const handleCreateNote = useCallback(() => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
     setEditingNote(null)
     setDefaultSubjectId(filterSubjectId)
     setDefaultLessonId(filterLessonId)
     setShowModal(true)
-  }
+  }, [canWrite, requireWrite, filterSubjectId, filterLessonId])
 
-  const handleEditNote = (note: Note) => {
+  const handleEditNote = useCallback((note: Note) => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
     setEditingNote(note)
     setDefaultSubjectId(null)
     setDefaultLessonId(null)
     setShowModal(true)
-  }
+  }, [canWrite, requireWrite])
 
   const handleDeleteNote = async (noteId: string) => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
     try {
       const res = await fetch(`/api/notes/${noteId}`, {
         method: 'DELETE'
@@ -255,6 +424,70 @@ export default function NotesPage() {
     }
   }
 
+  const handleToggleFavorite = async (noteId: string) => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
+    const note = notes.find(n => n.id === noteId)
+    if (!note) return
+
+    try {
+      const res = await fetch(`/api/notes/${noteId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isFavorite: !note.isFavorite })
+      })
+
+      if (res.ok) {
+        setNotes(notes.map(n => 
+          n.id === noteId ? { ...n, isFavorite: !n.isFavorite } : n
+        ))
+        toast({ 
+          title: note.isFavorite ? 'تمت الإزالة من المفضلة' : 'تمت الإضافة للمفضلة' 
+        })
+      }
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'خطأ',
+        description: 'حدث خطأ'
+      })
+    }
+  }
+
+  const handleTogglePin = async (noteId: string) => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
+    const note = notes.find(n => n.id === noteId)
+    if (!note) return
+
+    try {
+      const res = await fetch(`/api/notes/${noteId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPinned: !note.isPinned })
+      })
+
+      if (res.ok) {
+        setNotes(notes.map(n => 
+          n.id === noteId ? { ...n, isPinned: !n.isPinned } : n
+        ))
+        toast({ 
+          title: note.isPinned ? 'تم فك التثبيت' : 'تم التثبيت' 
+        })
+      }
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'خطأ',
+        description: 'حدث خطأ'
+      })
+    }
+  }
+
   const handleNoteCreated = (note: Note) => {
     setNotes([note, ...notes])
   }
@@ -266,7 +499,6 @@ export default function NotesPage() {
   const handleSubjectClick = (subjectId: string) => {
     setFilterSubjectId(subjectId)
     setFilterLessonId(null)
-    setViewMode('all')
   }
 
   const handleLessonClick = (lessonId: string) => {
@@ -275,13 +507,15 @@ export default function NotesPage() {
       setFilterSubjectId(note.subjectId)
     }
     setFilterLessonId(lessonId)
-    setViewMode('all')
   }
 
   const clearFilters = () => {
     setFilterSubjectId(null)
     setFilterLessonId(null)
     setSearchQuery('')
+    setShowFavorites(false)
+    setShowArchived(false)
+    setSelectedColor(null)
   }
 
   // Reset lesson filter when subject changes
@@ -295,10 +529,24 @@ export default function NotesPage() {
     }
   }
 
+  // Stats
+  const stats = useMemo(() => ({
+    total: notes.length,
+    favorites: notes.filter(n => n.isFavorite).length,
+    pinned: notes.filter(n => n.isPinned).length,
+    archived: notes.filter(n => n.isArchived).length,
+  }), [notes])
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-violet-500/20 rounded-full" />
+            <div className="absolute inset-0 w-16 h-16 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+          <p className="text-muted-foreground animate-pulse">جاري التحميل...</p>
+        </div>
       </div>
     )
   }
@@ -312,28 +560,46 @@ export default function NotesPage() {
   }
 
   return (
-    <div className="min-h-screen pb-24 lg:pb-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 pb-24 lg:pb-8">
+      {/* Background Effects */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-violet-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-500/5 rounded-full blur-3xl" />
+      </div>
+
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-40 glass">
+      <header className="fixed top-0 left-0 right-0 z-40 glass border-b border-white/5">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
-            <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet to-primary flex items-center justify-center">
+            <Link href="/dashboard" className="flex items-center gap-2 group">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-500 to-primary flex items-center justify-center shadow-lg shadow-violet-500/20 group-hover:shadow-violet-500/40 transition-shadow">
                 <BookOpen className="w-4 h-4 text-white" />
               </div>
-              <span className="font-bold text-lg gradient-text hidden sm:block">Matrixa</span>
+              <span className="font-bold text-lg bg-gradient-to-r from-violet-400 to-primary bg-clip-text text-transparent hidden sm:block">Matrixa</span>
             </Link>
 
-            <h1 className="text-lg font-semibold">الملاحظات</h1>
+            <h1 className="text-lg font-semibold flex items-center gap-2">
+              <Notebook className="w-5 h-5 text-violet-400" />
+              الملاحظات
+            </h1>
 
             <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full hover:bg-white/5"
+                onClick={() => setShowKeyboardShortcuts(true)}
+              >
+                <Keyboard className="w-5 h-5" />
+              </Button>
               <Link href="/settings">
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button variant="ghost" size="icon" className="rounded-full hover:bg-white/5">
                   <Settings className="w-5 h-5" />
                 </Button>
               </Link>
-              <Avatar className="w-8 h-8">
-                <AvatarFallback className="bg-primary/20 text-primary text-sm">
+              <Avatar className="w-8 h-8 ring-2 ring-violet-500/20">
+                <AvatarFallback className="bg-gradient-to-br from-violet-500/20 to-primary/20 text-primary text-sm">
                   {user?.fullName?.charAt(0) || user?.email.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
@@ -343,45 +609,118 @@ export default function NotesPage() {
       </header>
 
       {/* Main Content */}
-      <main className="pt-20 px-4">
-        <div className="container mx-auto max-w-4xl">
+      <main className="pt-20 px-4 relative">
+        <div className="container mx-auto max-w-5xl">
+          {/* Stats Bar */}
+          <div className="flex items-center gap-4 mb-6 p-4 glass rounded-xl border border-white/5">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-lg bg-violet-500/10">
+                <FileText className="w-4 h-4 text-violet-400" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">إجمالي</p>
+                <p className="font-semibold">{stats.total}</p>
+              </div>
+            </div>
+            <div className="w-px h-8 bg-white/10" />
+            <button 
+              onClick={() => setShowFavorites(!showFavorites)}
+              className={`flex items-center gap-2 transition-colors ${showFavorites ? 'text-amber-400' : 'hover:text-amber-400'}`}
+            >
+              <Star className={`w-4 h-4 ${showFavorites ? 'fill-amber-400' : ''}`} />
+              <span className="text-sm">{stats.favorites}</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <Pin className="w-4 h-4 text-cyan-400" />
+              <span className="text-sm">{stats.pinned}</span>
+            </div>
+            <button 
+              onClick={() => setShowArchived(!showArchived)}
+              className={`flex items-center gap-2 transition-colors ${showArchived ? 'text-muted-foreground' : 'hover:text-muted-foreground'}`}
+            >
+              <Archive className="w-4 h-4" />
+              <span className="text-sm">{stats.archived}</span>
+            </button>
+          </div>
+
+          {/* Read-Only Warning Banner */}
+          {isReadOnly && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center gap-3">
+                <Lock className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium text-amber-400">وضع القراءة فقط</p>
+                  <p className="text-sm text-muted-foreground">
+                    انتهى اشتراكك. يمكنك مشاهدة {notesLimit} ملاحظة فقط. جدد اشتراكك للوصول الكامل.
+                  </p>
+                </div>
+                <Link href="/subscription">
+                  <Button size="sm" className="bg-amber-500 hover:bg-amber-600">
+                    تجديد الاشتراك
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Search, Filters, and Create */}
           <div className="space-y-3 mb-6">
             {/* Search and Create Row */}
             <div className="flex gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <div className="relative flex-1 group">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-violet-400 transition-colors" />
                 <Input
-                  placeholder="بحث في الملاحظات..."
+                  id="search-input"
+                  placeholder="بحث في الملاحظات... (اضغط /)"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pr-10"
+                  className="pr-10 bg-white/5 border-white/10 focus:border-violet-500/50 focus:ring-violet-500/20"
                 />
               </div>
-              <Button onClick={handleCreateNote}>
+              <Button 
+                onClick={handleCreateNote}
+                className="bg-gradient-to-r from-violet-600 to-primary hover:from-violet-500 hover:to-primary/90 shadow-lg shadow-violet-500/20"
+              >
                 <Plus className="w-4 h-4 ml-1" />
-                جديد
+                جديدة
               </Button>
             </div>
 
             {/* View Toggle and Filters Row */}
             <div className="flex flex-wrap gap-3 items-center justify-between">
               {/* View Mode Toggle */}
-              <ToggleGroup
-                type="single"
-                value={viewMode}
-                onValueChange={(value) => value && setViewMode(value as ViewMode)}
-                className="justify-start"
-              >
-                <ToggleGroupItem value="all" aria-label="عرض الكل" className="gap-1.5">
-                  <LayoutGrid className="w-4 h-4" />
-                  <span className="hidden sm:inline">الكل</span>
-                </ToggleGroupItem>
-                <ToggleGroupItem value="grouped" aria-label="حسب المادة" className="gap-1.5">
-                  <Layers className="w-4 h-4" />
-                  <span className="hidden sm:inline">حسب المادة</span>
-                </ToggleGroupItem>
-              </ToggleGroup>
+              <div className="flex items-center gap-2">
+                <ToggleGroup
+                  type="single"
+                  value={viewMode}
+                  onValueChange={(value) => value && setViewMode(value as ViewMode)}
+                  className="justify-start bg-white/5 rounded-lg p-1"
+                >
+                  <ToggleGroupItem value="grid" aria-label="عرض شبكي" className="gap-1.5 data-[state=on]:bg-violet-500/20 data-[state=on]:text-violet-400">
+                    <Grid3X3 className="w-4 h-4" />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="list" aria-label="عرض قائمة" className="gap-1.5 data-[state=on]:bg-violet-500/20 data-[state=on]:text-violet-400">
+                    <List className="w-4 h-4" />
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="compact" aria-label="عرض مضغوط" className="gap-1.5 data-[state=on]:bg-violet-500/20 data-[state=on]:text-violet-400">
+                    <LayoutGrid className="w-4 h-4" />
+                  </ToggleGroupItem>
+                </ToggleGroup>
+
+                {/* Sort */}
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+                  <SelectTrigger className="w-36 bg-white/5 border-white/10">
+                    <SortAsc className="w-4 h-4 ml-1" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="updated">آخر تحديث</SelectItem>
+                    <SelectItem value="created">تاريخ الإنشاء</SelectItem>
+                    <SelectItem value="title">العنوان</SelectItem>
+                    <SelectItem value="subject">المادة</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               {/* Subject Filter */}
               <div className="flex gap-2 items-center flex-1 justify-end">
@@ -389,7 +728,7 @@ export default function NotesPage() {
                   value={filterSubjectId || 'all'}
                   onValueChange={handleSubjectFilterChange}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="w-40 bg-white/5 border-white/10">
                     <SelectValue placeholder="فلترة بالمادة" />
                   </SelectTrigger>
                   <SelectContent>
@@ -416,7 +755,7 @@ export default function NotesPage() {
                     value={filterLessonId || 'all'}
                     onValueChange={(value) => setFilterLessonId(value === 'all' ? null : value)}
                   >
-                    <SelectTrigger className="w-40">
+                    <SelectTrigger className="w-40 bg-white/5 border-white/10">
                       <SelectValue placeholder="فلترة بالدرس" />
                     </SelectTrigger>
                     <SelectContent>
@@ -430,8 +769,35 @@ export default function NotesPage() {
                   </Select>
                 )}
 
+                {/* Color Filter */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="rounded-lg bg-white/5">
+                      <Palette className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel>فلترة باللون</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <div className="grid grid-cols-6 gap-1 p-2">
+                      <button
+                        onClick={() => setSelectedColor(null)}
+                        className={`w-6 h-6 rounded border ${!selectedColor ? 'ring-2 ring-violet-500' : ''}`}
+                      />
+                      {noteColors.slice(1).map((color) => (
+                        <button
+                          key={color.value}
+                          onClick={() => setSelectedColor(color.value)}
+                          className={`w-6 h-6 rounded ${selectedColor === color.value ? 'ring-2 ring-violet-500' : ''}`}
+                          style={{ backgroundColor: color.value }}
+                        />
+                      ))}
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 {/* Clear Filters */}
-                {(filterSubjectId || filterLessonId || searchQuery) && (
+                {(filterSubjectId || filterLessonId || searchQuery || showFavorites || showArchived || selectedColor) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -446,8 +812,35 @@ export default function NotesPage() {
             </div>
 
             {/* Active Filters Display */}
-            {(filterSubjectId || filterLessonId) && (
+            {(filterSubjectId || filterLessonId || showFavorites || showArchived || selectedColor) && (
               <div className="flex flex-wrap gap-2">
+                {showFavorites && (
+                  <Badge className="gap-1 bg-amber-500/10 text-amber-400 border-amber-500/20">
+                    <Star className="w-3 h-3 fill-amber-400" />
+                    المفضلة
+                    <button onClick={() => setShowFavorites(false)}>
+                      <X className="w-3 h-3 mr-1" />
+                    </button>
+                  </Badge>
+                )}
+                {showArchived && (
+                  <Badge className="gap-1 bg-slate-500/10 text-slate-400 border-slate-500/20">
+                    <Archive className="w-3 h-3" />
+                    المؤرشفة
+                    <button onClick={() => setShowArchived(false)}>
+                      <X className="w-3 h-3 mr-1" />
+                    </button>
+                  </Badge>
+                )}
+                {selectedColor && (
+                  <Badge className="gap-1">
+                    <div className="w-3 h-3 rounded" style={{ backgroundColor: selectedColor }} />
+                    لون محدد
+                    <button onClick={() => setSelectedColor(null)}>
+                      <X className="w-3 h-3 mr-1" />
+                    </button>
+                  </Badge>
+                )}
                 {filterSubjectId && subjects.find(s => s.id === filterSubjectId) && (
                   <Badge
                     variant="secondary"
@@ -485,15 +878,22 @@ export default function NotesPage() {
           </div>
 
           {/* Notes Count */}
-          <div className="mb-4 text-sm text-muted-foreground">
-            {filteredNotes.length} ملاحظة
+          <div className="mb-4 text-sm text-muted-foreground flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-violet-400" />
+            {isReadOnly ? `${filteredNotes.length} من ${notesLimit} ملاحظة` : `${filteredNotes.length} ملاحظة`}
+            {isReadOnly && (
+              <Badge variant="outline" className="text-xs ml-2 bg-amber-500/10 text-amber-400 border-amber-500/20">
+                <Eye className="w-3 h-3 ml-1" />
+                وضع القراءة فقط - محدود بـ {notesLimit} ملاحظات
+              </Badge>
+            )}
           </div>
 
           {/* Notes Display */}
           {filteredNotes.length > 0 ? (
-            viewMode === 'all' ? (
-              // All Notes View
-              <div className="grid gap-4 sm:grid-cols-2">
+            viewMode === 'grid' ? (
+              // Grid View
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredNotes.map((note) => (
                   <NoteCard
                     key={note.id}
@@ -503,109 +903,65 @@ export default function NotesPage() {
                     onDelete={handleDeleteNote}
                     onSubjectClick={handleSubjectClick}
                     onLessonClick={handleLessonClick}
+                    onToggleFavorite={() => handleToggleFavorite(note.id)}
+                    onTogglePin={() => handleTogglePin(note.id)}
+                    showActions
+                  />
+                ))}
+              </div>
+            ) : viewMode === 'list' ? (
+              // List View
+              <div className="space-y-2">
+                {filteredNotes.map((note) => (
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    studyLanguage={user?.studyLanguage}
+                    onEdit={handleEditNote}
+                    onDelete={handleDeleteNote}
+                    onSubjectClick={handleSubjectClick}
+                    onLessonClick={handleLessonClick}
+                    onToggleFavorite={() => handleToggleFavorite(note.id)}
+                    onTogglePin={() => handleTogglePin(note.id)}
+                    variant="list"
+                    showActions
                   />
                 ))}
               </div>
             ) : (
-              // Grouped View
-              <Accordion type="multiple" className="space-y-4" defaultValue={groupedNotes.map(g => g.subject.id)}>
-                {groupedNotes.map((group) => (
-                  <AccordionItem
-                    key={group.subject.id}
-                    value={group.subject.id}
-                    className="border rounded-xl overflow-hidden bg-card"
-                  >
-                    <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-white/5">
-                      <div className="flex items-center gap-3">
-                        {group.subject.color && group.subject.id !== 'ungrouped' && (
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: group.subject.color }}
-                          />
-                        )}
-                        <span className="font-semibold">{getSubjectName(group.subject)}</span>
-                        <Badge variant="secondary" className="mr-2">
-                          {group.notes.length}
-                        </Badge>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="px-4 pb-4">
-                      <div className="space-y-4">
-                        {/* Notes grouped by lesson */}
-                        {Array.from(group.lessons.entries()).map(([lessonId, lessonNotes]) => {
-                          const subject = subjects.find(s => s.id === group.subject.id)
-                          const lesson = subject?.units
-                            .flatMap(u => u.lessons)
-                            .find(l => l.id === lessonId)
-
-                          if (!lesson) return null
-
-                          return (
-                            <div key={lessonId} className="space-y-2">
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <FileText className="w-4 h-4" />
-                                <span>{getLessonName(lesson)}</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {lessonNotes.length}
-                                </Badge>
-                              </div>
-                              <div className="grid gap-3 sm:grid-cols-2 pr-6">
-                                {lessonNotes.map((note) => (
-                                  <NoteCard
-                                    key={note.id}
-                                    note={note}
-                                    studyLanguage={user?.studyLanguage}
-                                    onEdit={handleEditNote}
-                                    onDelete={handleDeleteNote}
-                                    onSubjectClick={handleSubjectClick}
-                                    onLessonClick={handleLessonClick}
-                                    compact
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          )
-                        })}
-
-                        {/* Notes without lessons */}
-                        {group.notes.filter(n => !n.lessonId).length > 0 && (
-                          <div className="space-y-2">
-                            {group.lessons.size > 0 && (
-                              <div className="text-sm text-muted-foreground">ملاحظات عامة</div>
-                            )}
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              {group.notes
-                                .filter(n => !n.lessonId)
-                                .map((note) => (
-                                  <NoteCard
-                                    key={note.id}
-                                    note={note}
-                                    studyLanguage={user?.studyLanguage}
-                                    onEdit={handleEditNote}
-                                    onDelete={handleDeleteNote}
-                                    onSubjectClick={handleSubjectClick}
-                                    onLessonClick={handleLessonClick}
-                                    compact
-                                  />
-                                ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
+              // Compact View
+              <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {filteredNotes.map((note) => (
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    studyLanguage={user?.studyLanguage}
+                    onEdit={handleEditNote}
+                    onDelete={handleDeleteNote}
+                    onSubjectClick={handleSubjectClick}
+                    onLessonClick={handleLessonClick}
+                    compact
+                  />
                 ))}
-              </Accordion>
+              </div>
             )
           ) : (
-            <div className="text-center py-12 bg-card rounded-2xl border border-border">
-              <Notebook className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground mb-4">
+            <div className="text-center py-16 glass rounded-2xl border border-white/5">
+              <div className="w-16 h-16 rounded-full bg-violet-500/10 flex items-center justify-center mx-auto mb-4">
+                <Notebook className="w-8 h-8 text-violet-400" />
+              </div>
+              <p className="text-muted-foreground mb-2">
                 {searchQuery || filterSubjectId || filterLessonId
                   ? 'لا توجد ملاحظات مطابقة'
                   : 'لا توجد ملاحظات بعد'}
               </p>
-              <Button onClick={handleCreateNote}>
+              <p className="text-sm text-muted-foreground mb-6">
+                اضغط N لإنشاء ملاحظة جديدة
+              </p>
+              <Button 
+                onClick={handleCreateNote}
+                className="bg-gradient-to-r from-violet-600 to-primary"
+              >
                 <Plus className="w-4 h-4 ml-1" />
                 إنشاء ملاحظة
               </Button>
@@ -626,15 +982,49 @@ export default function NotesPage() {
         studyLanguage={user?.studyLanguage}
       />
 
+      {/* Upgrade Modal */}
+      <UpgradeModal />
+
+      {/* Keyboard Shortcuts Dialog */}
+      <Dialog open={showKeyboardShortcuts} onOpenChange={setShowKeyboardShortcuts}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Keyboard className="w-5 h-5" />
+              اختصارات لوحة المفاتيح
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 py-4">
+            {[
+              { key: 'N', action: 'إنشاء ملاحظة جديدة' },
+              { key: '/', action: 'التركيز على البحث' },
+              { key: 'F', action: 'تبديل المفضلة' },
+              { key: '1', action: 'عرض شبكي' },
+              { key: '2', action: 'عرض قائمة' },
+              { key: '3', action: 'عرض مضغوط' },
+              { key: 'Esc', action: 'مسح الفلاتر' },
+              { key: '?', action: 'عرض الاختصارات' },
+            ].map((shortcut) => (
+              <div key={shortcut.key} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                <span className="text-muted-foreground">{shortcut.action}</span>
+                <kbd className="px-2 py-1 bg-white/5 rounded text-sm font-mono">{shortcut.key}</kbd>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Mobile Nav */}
-      <nav className="fixed bottom-0 left-0 right-0 md:hidden bg-card border-t border-border z-40">
+      <nav className="fixed bottom-0 left-0 right-0 md:hidden glass border-t border-white/5 z-40">
         <div className="grid grid-cols-5">
           {navItems.map((item) => (
             <Link
               key={item.id}
               href={item.href}
-              className={`flex flex-col items-center gap-1 py-3 ${
-                item.id === 'notes' ? 'text-primary' : 'text-muted-foreground'
+              className={`flex flex-col items-center gap-1 py-3 transition-colors ${
+                item.id === 'notes' 
+                  ? 'text-violet-400' 
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <item.icon className="w-5 h-5" />

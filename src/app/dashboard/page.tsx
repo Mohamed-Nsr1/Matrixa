@@ -24,6 +24,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { useToast } from '@/hooks/use-toast'
 import { FocusSuggestions } from '@/components/insights/FocusSuggestions'
 import { ExamCountdown } from '@/components/dashboard/ExamCountdown'
+import SubscriptionBanner from '@/components/subscription/SubscriptionBanner'
+import UpgradeModal from '@/components/subscription/UpgradeModal'
 
 // Types
 interface Task {
@@ -96,18 +98,13 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        console.log('[Dashboard] Fetching user data...')
         const res = await fetch('/api/auth/me')
-        console.log('[Dashboard] Response status:', res.status)
         const data = await res.json()
-        console.log('[Dashboard] Response data:', { success: data.success, hasUser: !!data.user })
 
         if (data.success) {
           setUser(data.user)
           setStreak(data.streak)
-          console.log('[Dashboard] User loaded successfully')
         } else {
-          console.log('[Dashboard] Not authenticated, redirecting to login')
           // Use full page navigation to ensure middleware runs
           window.location.href = '/auth/login'
         }
@@ -117,13 +114,11 @@ export default function DashboardPage() {
         window.location.href = '/auth/login'
       } finally {
         setLoading(false)
-        console.log('[Dashboard] Loading complete')
       }
     }
 
     // Add a timeout to prevent infinite loading
     const timeout = setTimeout(() => {
-      console.log('[Dashboard] Timeout reached, forcing loading to complete')
       setLoading(false)
     }, 10000) // 10 seconds timeout
 
@@ -357,6 +352,9 @@ export default function DashboardPage() {
       {/* Main Content */}
       <main className="pt-20 pb-24 px-4">
         <div className="container mx-auto max-w-4xl">
+          {/* Subscription Banner */}
+          <SubscriptionBanner className="mb-4" />
+
           {/* Hero Section */}
           <section className="mb-6">
             <div className="p-6 rounded-2xl bg-gradient-to-br from-primary/20 via-card to-card border border-primary/20">
@@ -570,6 +568,9 @@ export default function DashboardPage() {
           ))}
         </div>
       </nav>
+
+      {/* Upgrade Modal */}
+      <UpgradeModal />
     </div>
   )
 }

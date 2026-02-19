@@ -14,6 +14,13 @@ import { prisma } from '@/lib/db'
 import { verifyPassword, createSession, generateAccessToken, setAuthCookies } from '@/lib/auth'
 import { getDeviceFingerprint } from '@/lib/auth'
 import { loginRateLimit } from '@/lib/rate-limit'
+import { 
+  getSystemSetting, 
+  getGracePeriodDays, 
+  isSignInRestrictionEnabled, 
+  getSignInRestrictionDays,
+  getExpiredUserLimits
+} from '@/lib/subscription'
 import { z } from 'zod'
 import { cookies } from 'next/headers'
 
@@ -32,12 +39,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    console.log('[Login] Request body:', { email: body?.email, hasPassword: !!body?.password })
     
     const validation = loginSchema.safeParse(body)
 
     if (!validation.success) {
-      console.log('[Login] Validation failed:', validation.error)
       const errorMessage = validation.error?.issues?.[0]?.message || 'Validation error'
       return NextResponse.json(
         { success: false, error: errorMessage },
@@ -53,7 +58,6 @@ export async function POST(request: NextRequest) {
     })
 
     if (!user) {
-      console.log('Login attempt: User not found for email:', email)
       return NextResponse.json(
         { success: false, error: 'Invalid email or password' },
         { status: 401 }
@@ -64,7 +68,6 @@ export async function POST(request: NextRequest) {
     const isValid = await verifyPassword(password, user.passwordHash)
 
     if (!isValid) {
-      console.log('Login attempt: Invalid password for user:', email)
       return NextResponse.json(
         { success: false, error: 'Invalid email or password' },
         { status: 401 }
@@ -73,7 +76,6 @@ export async function POST(request: NextRequest) {
 
     // Check if user is banned
     if (user.isBanned) {
-      console.log('Login attempt: Banned user tried to login:', email)
       return NextResponse.json(
         { 
           success: false, 
@@ -119,19 +121,10 @@ export async function POST(request: NextRequest) {
     })
 
     // Detect HTTPS for secure cookies (needed for preview proxy environments)
-    // The preview proxy sends the external hostname in the 'abc' header
-    // If 'abc' header is present, we're in a preview environment (external HTTPS)
     const previewHost = request.headers.get('abc')
     const forwardedProto = request.headers.get('x-forwarded-proto')
     const isHttps = previewHost ? true : (forwardedProto === 'https' || request.url.startsWith('https://'))
     const useSecureCookies = process.env.NODE_ENV === 'production' || isHttps
-
-    console.log('[Login] Cookie security:', {
-      previewHost,
-      forwardedProto,
-      isHttps,
-      useSecureCookies
-    })
 
     // Set cookies with appropriate secure flag
     await setAuthCookies(accessToken, refreshToken, useSecureCookies)
@@ -197,7 +190,16 @@ export async function POST(request: NextRequest) {
     const now = new Date()
     let isActive = false
     let isInTrial = false
+    let isInGracePeriod = false
+    let isAccessDenied = false
     let remainingTrialDays = 0
+    let daysSinceExpiry = 0
+
+    // Get admin-configured settings
+    const gracePeriodDays = await getGracePeriodDays()
+    const signInRestrictionEnabled = await isSignInRestrictionEnabled()
+    const signInRestrictionDays = await getSignInRestrictionDays()
+    const featureLimits = await getExpiredUserLimits()
 
     if (subscription) {
       // Check if active subscription
@@ -215,6 +217,33 @@ export async function POST(request: NextRequest) {
           remainingTrialDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)))
         }
       }
+
+      // Check if in grace period (configurable days after subscription end)
+      if (subscription.endDate && !isActive && !isInTrial) {
+        const endDate = new Date(subscription.endDate)
+        const gracePeriodEnd = subscription.gracePeriodEnd 
+          ? new Date(subscription.gracePeriodEnd)
+          : new Date(endDate.getTime() + gracePeriodDays * 24 * 60 * 60 * 1000)
+        
+        // Calculate days since expiry
+        const diffTime = now.getTime() - endDate.getTime()
+        daysSinceExpiry = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)))
+        
+        if (now <= gracePeriodEnd) {
+          isInGracePeriod = true
+        } else if (signInRestrictionEnabled) {
+          // Check if past the total access period (grace + sign-in restriction days)
+          const totalAccessEnd = new Date(gracePeriodEnd.getTime() + signInRestrictionDays * 24 * 60 * 60 * 1000)
+          if (now > totalAccessEnd) {
+            isAccessDenied = true
+          }
+        }
+      }
+    } else if (signInRestrictionEnabled) {
+      // No subscription at all - check if should be denied
+      // If no subscription, we deny access immediately if restriction is enabled
+      // Actually, let them through but with limited access
+      isAccessDenied = false
     }
 
     // Set subscription cookies
@@ -242,10 +271,34 @@ export async function POST(request: NextRequest) {
       path: '/'
     })
 
+    cookieStore.set('isInGracePeriod', isInGracePeriod ? 'true' : 'false', {
+      httpOnly: true,
+      secure: useSecureCookies,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60, // 1 day
+      path: '/'
+    })
+
+    // Set access denied cookie
+    cookieStore.set('isAccessDenied', isAccessDenied ? 'true' : 'false', {
+      httpOnly: true,
+      secure: useSecureCookies,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60, // 1 day
+      path: '/'
+    })
+
+    // Set feature limits cookie (JSON string)
+    cookieStore.set('featureLimits', JSON.stringify(featureLimits), {
+      httpOnly: true,
+      secure: useSecureCookies,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60, // 1 day
+      path: '/'
+    })
+
     // Return user without password
     const { passwordHash: _, ...userWithoutPassword } = user
-
-    console.log('Login successful for user:', email, 'role:', user.role)
 
     return NextResponse.json({
       success: true,
@@ -258,15 +311,11 @@ export async function POST(request: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Login error:', error)
+    console.error('Login error:', error instanceof Error ? error.message : 'Unknown error')
     
-    // Provide more detailed error in development
-    const errorMessage = process.env.NODE_ENV === 'development' 
-      ? error instanceof Error ? error.message : 'Unknown error'
-      : 'Internal server error'
-    
+    // SECURITY: Generic error message in production
     return NextResponse.json(
-      { success: false, error: errorMessage },
+      { success: false, error: 'Internal server error' },
       { status: 500 }
     )
   }

@@ -10,25 +10,44 @@ import {
   BookOpen,
   Settings,
   TrendingUp,
-  Clock
+  Clock,
+  DollarSign,
+  AlertCircle
 } from 'lucide-react'
 import { AdminLayout } from '@/components/admin/AdminLayout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useToast } from '@/hooks/use-toast'
 
+interface Stats {
+  totalUsers: number
+  activeUsers: number
+  totalSubscriptions: number
+  activeSubscriptions: number
+  revenue: {
+    total: number
+    thisMonth: number
+    lastMonth: number
+  }
+  trialUsers: number
+  newUsersToday: number
+  expiredSubscriptions: number
+  pendingPayments: number
+}
+
 export default function AdminPage() {
   const { toast } = useToast()
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<Stats>({
     totalUsers: 0,
     activeUsers: 0,
     totalSubscriptions: 0,
     activeSubscriptions: 0,
-    revenue: 0,
+    revenue: { total: 0, thisMonth: 0, lastMonth: 0 },
     trialUsers: 0,
     newUsersToday: 0,
-    expiredSubscriptions: 0
+    expiredSubscriptions: 0,
+    pendingPayments: 0
   })
 
   useEffect(() => {
@@ -114,16 +133,38 @@ export default function AdminPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">الإيرادات (جنيه)</CardTitle>
-              <BarChart3 className="h-4 w-4 text-violet" />
+              <DollarSign className="h-4 w-4 text-violet" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-violet">{stats.revenue.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-violet">{stats.revenue.total.toLocaleString()}</div>
               <p className="text-xs text-muted-foreground">
-                إجمالي الإيرادات
+                هذا الشهر: {stats.revenue.thisMonth.toLocaleString()} ج
               </p>
             </CardContent>
           </Card>
         </div>
+
+        {/* Pending Payments Alert */}
+        {stats.pendingPayments > 0 && (
+          <Card className="border-yellow-500/30 bg-yellow-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-yellow-500" />
+                <div className="flex-1">
+                  <p className="font-medium text-yellow-400">طلبات دفع معلقة</p>
+                  <p className="text-sm text-muted-foreground">
+                    يوجد {stats.pendingPayments} طلب دفع بانتظار المراجعة
+                  </p>
+                </div>
+                <Link href="/admin/manual-payments">
+                  <Button variant="outline" size="sm">
+                    مراجعة
+                  </Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Quick Actions */}
         <div>

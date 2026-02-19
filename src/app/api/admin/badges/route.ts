@@ -14,7 +14,7 @@ export async function GET() {
   try {
     const user = await getCurrentUser()
     if (!user || user.role !== 'ADMIN') {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
     }
 
     const badges = await prisma.badge.findMany({
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser()
     if (!user || user.role !== 'ADMIN') {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
     }
 
     const body = await request.json()
@@ -109,7 +109,7 @@ export async function PUT() {
   try {
     const user = await getCurrentUser()
     if (!user || user.role !== 'ADMIN') {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
     }
 
     const defaultBadges = [

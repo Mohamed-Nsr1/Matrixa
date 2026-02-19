@@ -41,10 +41,11 @@ Matrixa is a production-ready SaaS platform designed specifically for Egyptian h
 | 🎯 **Focus Mode** | Pomodoro-style timer with brain dump, progress markers (video/questions/revision), and session history |
 | 📚 **Subjects Hub** | Track progress across all subjects with hierarchical curriculum (Branch → Subject → Unit → Lesson) |
 | 📅 **Weekly Planner** | Drag-and-drop task scheduling with day-by-day view and task management |
-| 📝 **Notes System** | Organized notes linked to subjects and lessons with search and filtering |
+| 📝 **Notes System** | Organized notes linked to subjects and lessons with search, folders, tags, templates, and filtering |
 | 📊 **Insights** | Progress analytics, study time tracking, and weak area identification |
 | 🔥 **Streak System** | Daily motivation with streak tracking and visual indicators |
 | 🏆 **Leaderboard** | Friendly competition with peers (opt-in) |
+| 🎖️ **Badges** | Gamification with achievements, progress tracking, and XP rewards |
 | 📖 **Private Lessons** | Schedule management for external lessons at centers (سناتر) |
 
 ### Admin Features
@@ -54,14 +55,17 @@ Matrixa is a production-ready SaaS platform designed specifically for Egyptian h
 | 👥 **User Management** | View, edit, ban users; manage subscriptions; reset passwords; impersonate users |
 | 📚 **Curriculum Management** | CRUD operations for branches, subjects, units, lessons; Import/Export (XLSX, CSV, JSON) |
 | 🎫 **Invite System** | Create and manage invite codes with usage tracking |
-| ⚙️ **System Settings** | Feature flags, subscription controls, trial configuration, test mode toggle |
+| ⚙️ **System Settings** | Feature flags, subscription controls, trial configuration, subscription expiration, feature limits |
 | 📈 **Analytics** | User lifecycle, revenue, engagement metrics with DAU/WAU/MAU |
 | 📝 **Audit Logs** | Complete action tracking with IP addresses and changes |
 | 📢 **Announcements** | Create and manage system announcements with scheduling |
 | 🏆 **Leaderboard Mgmt** | Toggle student visibility, reset scores |
+| 🎖️ **Badges Mgmt** | Create and manage achievement badges |
 | 🔥 **Streak Management** | View, edit, reset user streaks |
 | 🛠️ **Maintenance Mode** | Toggle maintenance mode; admins still have access |
 | 🔐 **Test Mode** | Toggle payment test mode for development |
+| 📧 **Email Tool** | Create templates, send emails, track delivery logs |
+| ⏰ **Expiration Control** | Configure grace period, sign-in restrictions, feature limits |
 
 ---
 
@@ -351,6 +355,10 @@ chore: maintenance tasks
 - [x] Error boundaries for all pages
 - [x] Privacy Policy & Terms of Service pages
 - [x] Forgot password flow
+- [x] Subscription expiration system
+- [x] Grace period and sign-in restriction
+- [x] Feature limits for expired users
+- [x] Admin email tool with templates
 
 ### Phase 3: Enhancements 🚧
 - [ ] Email notifications integration

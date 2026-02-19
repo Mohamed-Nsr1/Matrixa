@@ -217,10 +217,16 @@ export interface Note {
   userId: string
   subjectId: string | null
   lessonId: string | null
+  folderId: string | null
   title: string | null
   content: string
   color: string | null
   isPinned: boolean
+  isFavorite: boolean
+  isArchived: boolean
+  wordCount: number
+  readingTime: number
+  lastViewedAt: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -232,8 +238,13 @@ export interface NoteFrontend {
   content: string
   subjectId: string | null
   lessonId: string | null
+  folderId: string | null
   color?: string | null
   isPinned?: boolean
+  isFavorite?: boolean
+  isArchived?: boolean
+  wordCount?: number
+  readingTime?: number
   subject?: {
     id: string
     nameAr: string
@@ -245,7 +256,67 @@ export interface NoteFrontend {
     nameAr: string
     nameEn: string
   }
+  folder?: {
+    id: string
+    name: string
+    color: string | null
+    icon: string | null
+  }
+  tags?: NoteTagFrontend[]
   createdAt: string | Date
+  updatedAt?: string | Date
+}
+
+// Note Tag Types
+export interface NoteTag {
+  id: string
+  userId: string
+  name: string
+  color: string | null
+}
+
+export interface NoteTagFrontend {
+  id: string
+  name: string
+  color: string | null
+}
+
+// Note Folder Types
+export interface NoteFolder {
+  id: string
+  userId: string
+  name: string
+  color: string | null
+  icon: string | null
+  parentId: string | null
+  order: number
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface NoteFolderFrontend {
+  id: string
+  name: string
+  color: string | null
+  icon: string | null
+  parentId: string | null
+  order: number
+  noteCount: number
+  children?: NoteFolderFrontend[]
+}
+
+// Note Template Types
+export interface NoteTemplate {
+  id: string
+  userId: string | null
+  name: string
+  nameAr: string | null
+  description: string | null
+  descriptionAr: string | null
+  content: string
+  type: 'GENERAL' | 'CORNELL' | 'MINDMAP' | 'SUMMARY' | 'FLASHCARD' | 'STUDY_GUIDE'
+  isSystem: boolean
+  isActive: boolean
 }
 
 // ============================================

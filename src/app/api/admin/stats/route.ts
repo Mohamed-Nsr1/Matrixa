@@ -23,6 +23,13 @@ export async function GET() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+    
+    // First day of current month
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    // First day of last month
+    const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    // Last day of last month
+    const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0)
 
     // Get various stats in parallel
     const [
@@ -32,7 +39,11 @@ export async function GET() {
       activeSubscriptions,
       trialUsers,
       newUsersToday,
-      expiredSubscriptions
+      expiredSubscriptions,
+      totalRevenue,
+      thisMonthRevenue,
+      lastMonthRevenue,
+      pendingPayments
     ] = await Promise.all([
       // Total users (students only)
       prisma.user.count({
@@ -74,6 +85,43 @@ export async function GET() {
       // Expired subscriptions
       prisma.subscription.count({
         where: { status: 'EXPIRED' }
+      }),
+      
+      // Total revenue from approved manual payments
+      prisma.manualPaymentRequest.aggregate({
+        where: { status: 'APPROVED' },
+        _sum: { amount: true }
+      }),
+      
+      // This month's revenue
+      prisma.manualPaymentRequest.aggregate({
+        where: {
+          status: 'APPROVED',
+          reviewedAt: {
+            gte: firstDayOfMonth,
+            lte: now
+          }
+        },
+        _sum: { amount: true }
+      }),
+      
+      // Last month's revenue
+      prisma.manualPaymentRequest.aggregate({
+        where: {
+          status: 'APPROVED',
+          reviewedAt: {
+            gte: firstDayOfLastMonth,
+            lte: lastDayOfLastMonth
+          }
+        },
+        _sum: { amount: true }
+      }),
+      
+      // Pending payment requests
+      prisma.manualPaymentRequest.count({
+        where: {
+          status: { in: ['PENDING', 'NEEDS_INFO', 'INFO_PROVIDED'] }
+        }
       })
     ])
 
@@ -87,7 +135,12 @@ export async function GET() {
         trialUsers,
         newUsersToday,
         expiredSubscriptions,
-        revenue: 0 // Would calculate from actual payments
+        revenue: {
+          total: totalRevenue._sum.amount || 0,
+          thisMonth: thisMonthRevenue._sum.amount || 0,
+          lastMonth: lastMonthRevenue._sum.amount || 0
+        },
+        pendingPayments
       }
     })
   } catch (error) {

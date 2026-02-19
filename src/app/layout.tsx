@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { PWAProvider, InstallPrompt, UpdateNotification, OnlineStatusIndicator } from "@/components/pwa";
 import { ServiceWorkerCleanup } from "@/components/pwa/ServiceWorkerCleanup";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { SubscriptionProvider } from "@/contexts/SubscriptionContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -99,22 +100,24 @@ export default function RootLayout({
         <ThemeProvider>
           <ServiceWorkerCleanup />
           <PWAProvider>
-            <div className="relative min-h-screen">
-              {/* Gradient Background Orbs */}
-              <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-                <div className="absolute -top-1/4 -left-1/4 w-1/2 h-1/2 bg-primary/10 rounded-full blur-[120px]" />
-                <div className="absolute -bottom-1/4 -right-1/4 w-1/2 h-1/2 bg-cyan/5 rounded-full blur-[120px]" />
+            <SubscriptionProvider>
+              <div className="relative min-h-screen">
+                {/* Gradient Background Orbs */}
+                <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+                  <div className="absolute -top-1/4 -left-1/4 w-1/2 h-1/2 bg-primary/10 rounded-full blur-[120px]" />
+                  <div className="absolute -bottom-1/4 -right-1/4 w-1/2 h-1/2 bg-cyan/5 rounded-full blur-[120px]" />
+                </div>
+                
+                {/* Main Content */}
+                <div className="relative z-10">
+                  {children}
+                </div>
               </div>
-              
-              {/* Main Content */}
-              <div className="relative z-10">
-                {children}
-              </div>
-            </div>
-            <Toaster />
-            <InstallPrompt />
-            <UpdateNotification />
-            <OnlineStatusIndicator />
+              <Toaster />
+              <InstallPrompt />
+              <UpdateNotification />
+              <OnlineStatusIndicator />
+            </SubscriptionProvider>
           </PWAProvider>
         </ThemeProvider>
       </body>

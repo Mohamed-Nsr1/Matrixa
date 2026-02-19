@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -10,7 +10,9 @@ import {
   AlertCircle,
   Sparkles,
   ArrowLeft,
-  Loader2
+  Loader2,
+  DollarSign,
+  Smartphone
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -44,12 +46,21 @@ interface SubscriptionStatus {
   }
 }
 
-export default function SubscriptionPage() {
+interface PaymentSettings {
+  manualPaymentEnabled: boolean
+  paymobEnabled: boolean
+}
+
+function SubscriptionContent() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
   
   const [status, setStatus] = useState<SubscriptionStatus | null>(null)
   const [plans, setPlans] = useState<Plan[]>([])
+  const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({
+    manualPaymentEnabled: false,
+    paymobEnabled: false
+  })
   const [loading, setLoading] = useState(true)
   const [processingPlan, setProcessingPlan] = useState<string | null>(null)
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
@@ -63,13 +74,15 @@ export default function SubscriptionPage() {
 
   const fetchData = async () => {
     try {
-      const [statusRes, plansRes] = await Promise.all([
+      const [statusRes, plansRes, settingsRes] = await Promise.all([
         fetch('/api/subscription/status'),
-        fetch('/api/subscription/plans')
+        fetch('/api/subscription/plans'),
+        fetch('/api/payment/manual/settings')
       ])
 
       const statusData = await statusRes.json()
       const plansData = await plansRes.json()
+      const settingsData = await settingsRes.json()
 
       if (statusData.success) {
         setStatus(statusData.subscription)
@@ -77,6 +90,10 @@ export default function SubscriptionPage() {
 
       if (plansData.success) {
         setPlans(plansData.plans)
+      }
+
+      if (settingsData.success) {
+        setPaymentSettings(settingsData.settings)
       }
     } catch {
       toast({
@@ -374,11 +391,62 @@ export default function SubscriptionPage() {
           )}
         </div>
 
+        {/* Manual Payment Option */}
+        {paymentSettings.manualPaymentEnabled && plans.length > 0 && (
+          <Card className="mt-8 border-green-500/30 bg-green-500/5">
+            <CardContent className="p-6">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-xl bg-green-500/20">
+                    <DollarSign className="w-6 h-6 text-green-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-lg">الدفع اليدوي</h3>
+                    <p className="text-sm text-muted-foreground">
+                      ادفع عبر فودافون كاش، اتصالات كاش، أورنج كاش أو انستاباي
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 w-full md:w-auto">
+                  <Link href={`/payment/manual${selectedPlan ? `?plan=${selectedPlan.id}` : ''}`} className="w-full md:w-auto">
+                    <Button className="w-full md:w-auto bg-green-500 hover:bg-green-600">
+                      <Smartphone className="w-4 h-4 ml-2" />
+                      الدفع اليدوي
+                    </Button>
+                  </Link>
+                  <p className="text-xs text-muted-foreground text-center">
+                    سيتم مراجعة طلبك خلال 24 ساعة
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Footer Note */}
         <p className="text-center text-sm text-muted-foreground mt-8">
-          الدفع آمن عبر Paymob • يمكنك الإلغاء في أي وقت
+          {paymentSettings.paymobEnabled 
+            ? 'الدفع آمن عبر Paymob • يمكنك الإلغاء في أي وقت'
+            : paymentSettings.manualPaymentEnabled
+            ? 'الدفع عبر المحافظ الإلكترونية أو انستاباي • مراجعة خلال 24 ساعة'
+            : 'للاشتراك، يرجى التواصل مع الإدارة'}
         </p>
       </div>
     </div>
+  )
+}
+
+export default function SubscriptionPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">جاري التحميل...</p>
+        </div>
+      </div>
+    }>
+      <SubscriptionContent />
+    </Suspense>
   )
 }

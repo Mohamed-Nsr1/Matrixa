@@ -9,6 +9,7 @@
 
 1. [Payment Integration (Paymob)](#1-payment-integration-paymob)
 2. [Email Service Integration](#2-email-service-integration)
+   - [Subscription Expiration Email Triggers](#subscription-expiration-email-triggers)
 3. [Push Notifications](#3-push-notifications)
 4. [Cron Job Scheduling](#4-cron-job-scheduling)
 5. [Rate Limiting (Redis)](#5-rate-limiting-redis)
@@ -17,6 +18,8 @@
 8. [File Upload (Profile Pictures)](#8-file-upload-profile-pictures)
 9. [Analytics & Tracking](#9-analytics--tracking)
 10. [Environment Variables Checklist](#10-environment-variables-checklist)
+11. [Gamification Badges System](#11-gamification-badges-system)
+12. [Manual Payment System (Egyptian Payment Methods)](#12-manual-payment-system-egyptian-payment-methods)
 
 ---
 
@@ -298,6 +301,201 @@ export async function sendEmail({ to, subject, html }: EmailOptions) {
     subject,
     html
   })
+}
+```
+
+### Subscription Expiration Email Triggers
+
+The admin email system has templates with automated triggers for subscription events. When email service is ready, connect these triggers:
+
+#### Email Triggers Available
+| Trigger | When It Fires | Template Variables |
+|---------|---------------|-------------------|
+| `TRIAL_STARTED` | User starts trial | `userName`, `trialEnd` |
+| `TRIAL_ENDING` | X days before trial ends | `userName`, `remainingDays`, `trialEnd` |
+| `TRIAL_EXPIRED` | Trial period ends | `userName` |
+| `SUBSCRIPTION_ACTIVE` | Payment successful | `userName`, `planName`, `subscriptionEnd` |
+| `SUBSCRIPTION_ENDING` | X days before subscription ends | `userName`, `remainingDays`, `subscriptionEnd` |
+| `SUBSCRIPTION_EXPIRED` | Subscription ends | `userName`, `gracePeriodEnd` |
+| `GRACE_PERIOD_STARTED` | Grace period begins | `userName`, `gracePeriodEnd` |
+| `GRACE_PERIOD_ENDING` | X days before grace period ends | `userName`, `remainingDays` |
+| `ACCESS_DENIED` | User access completely denied | `userName` |
+| `PAYMENT_SUCCESS` | Payment completed | `userName`, `planName`, `price` |
+| `PAYMENT_FAILED` | Payment failed | `userName` |
+| `WELCOME` | New user registration | `userName` |
+
+#### Create `/src/lib/subscription-emails.ts`
+```typescript
+import { sendEmail } from './email'
+import { prisma } from './db'
+
+interface EmailTemplate {
+  id: string
+  name: string
+  subject: string
+  subjectAr?: string
+  body: string
+  bodyAr?: string
+  trigger?: string
+  isActive: boolean
+}
+
+async function getEmailTemplate(trigger: string): Promise<EmailTemplate | null> {
+  return prisma.emailTemplate.findFirst({
+    where: { trigger, isActive: true }
+  })
+}
+
+function replaceVariables(template: string, variables: Record<string, string>): string {
+  let result = template
+  for (const [key, value] of Object.entries(variables)) {
+    result = result.replace(new RegExp(`{{${key}}}`, 'g'), value)
+  }
+  return result
+}
+
+export async function sendSubscriptionEmail(
+  trigger: string,
+  userEmail: string,
+  userName: string,
+  variables: Record<string, string> = {}
+) {
+  const template = await getEmailTemplate(trigger)
+  
+  if (!template) {
+    console.log(`No active template found for trigger: ${trigger}`)
+    return
+  }
+  
+  const allVariables = { userName, userEmail, ...variables }
+  const subject = replaceVariables(template.subjectAr || template.subject, allVariables)
+  const html = replaceVariables(template.bodyAr || template.body, allVariables)
+  
+  await sendEmail({ to: userEmail, subject, html })
+  
+  // Log the email
+  await prisma.emailLog.create({
+    data: {
+      templateId: template.id,
+      email: userEmail,
+      userName,
+      subject,
+      body: html,
+      status: 'SENT',
+      sentAt: new Date()
+    }
+  })
+}
+
+// Specific email functions
+export async function sendTrialEndingEmail(userEmail: string, userName: string, remainingDays: number, trialEnd: Date) {
+  await sendSubscriptionEmail('TRIAL_ENDING', userEmail, userName, {
+    remainingDays: remainingDays.toString(),
+    trialEnd: trialEnd.toLocaleDateString('ar-EG')
+  })
+}
+
+export async function sendSubscriptionExpiredEmail(userEmail: string, userName: string, gracePeriodEnd: Date) {
+  await sendSubscriptionEmail('SUBSCRIPTION_EXPIRED', userEmail, userName, {
+    gracePeriodEnd: gracePeriodEnd.toLocaleDateString('ar-EG')
+  })
+}
+
+export async function sendAccessDeniedEmail(userEmail: string, userName: string) {
+  await sendSubscriptionEmail('ACCESS_DENIED', userEmail, userName)
+}
+
+export async function sendPaymentSuccessEmail(userEmail: string, userName: string, planName: string, price: number) {
+  await sendSubscriptionEmail('PAYMENT_SUCCESS', userEmail, userName, {
+    planName,
+    price: `${price} جنيه`
+  })
+}
+```
+
+#### Update Cron Job to Send Automated Emails
+```typescript
+// In /src/app/api/cron/streak-check/route.ts or a new cron endpoint
+
+import { sendTrialEndingEmail, sendSubscriptionExpiredEmail, sendAccessDeniedEmail } from '@/lib/subscription-emails'
+
+export async function GET(request: Request) {
+  // ... existing streak check logic
+  
+  // Check for trial ending soon (3 days before)
+  const trialEndingSoon = await prisma.subscription.findMany({
+    where: {
+      status: 'TRIAL',
+      trialEnd: {
+        gte: new Date(),
+        lte: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+      },
+      // Not already sent warning
+      expiryWarningSentAt: null
+    },
+    include: { user: true }
+  })
+  
+  for (const sub of trialEndingSoon) {
+    const remainingDays = Math.ceil((sub.trialEnd!.getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+    await sendTrialEndingEmail(sub.user.email, sub.user.fullName || sub.user.email, remainingDays, sub.trialEnd!)
+    
+    // Mark as sent
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { expiryWarningSentAt: new Date() }
+    })
+  }
+  
+  // Check for grace period ending
+  const gracePeriodEnding = await prisma.subscription.findMany({
+    where: {
+      status: 'EXPIRED',
+      gracePeriodEnd: {
+        gte: new Date(),
+        lte: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000)
+      },
+      expiredNotificationSentAt: null
+    },
+    include: { user: true }
+  })
+  
+  for (const sub of gracePeriodEnding) {
+    await sendSubscriptionExpiredEmail(sub.user.email, sub.user.fullName || sub.user.email, sub.gracePeriodEnd!)
+    
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { expiredNotificationSentAt: new Date() }
+    })
+  }
+  
+  // Check for access denied (if sign-in restriction enabled)
+  const accessDenied = await prisma.subscription.findMany({
+    where: {
+      status: 'EXPIRED',
+      gracePeriodEnd: { lt: new Date() }
+    },
+    include: { user: true }
+  })
+  
+  // ... send access denied emails if needed
+}
+```
+
+#### Update Payment Webhook
+```typescript
+// In /src/app/api/payment/webhook/route.ts
+import { sendPaymentSuccessEmail } from '@/lib/subscription-emails'
+
+export async function POST(request: Request) {
+  // ... after successful payment verification
+  
+  await sendPaymentSuccessEmail(
+    user.email,
+    user.fullName || user.email,
+    plan.nameAr,
+    plan.price
+  )
 }
 ```
 
@@ -961,3 +1159,199 @@ icon: '/badges/streak-7.svg' // or 'flame' for Lucide icon
 - Share badges to social media
 - Badge-based leaderboard bonuses
 - Seasonal/special event badges
+
+---
+
+## 12. Manual Payment System (Egyptian Payment Methods)
+
+### Current Status
+✅ **FULLY IMPLEMENTED** - Manual payment system for Egyptian mobile wallets and InstaPay is complete and production-ready.
+
+### Supported Payment Methods
+| Method | Type | Identifier |
+|--------|------|------------|
+| Vodafone Cash | Mobile Wallet | Phone number |
+| Etisalat Cash (E&) | Mobile Wallet | Phone number |
+| Orange Cash | Mobile Wallet | Phone number |
+| InstaPay | Bank Transfer | Username |
+
+### How It Works
+
+#### Student Workflow
+1. Student navigates to `/payment/manual` (or from subscription page)
+2. Selects a subscription plan
+3. Chooses payment method (only enabled methods shown)
+4. Enters sender information:
+   - For mobile wallets: phone number (01xxxxxxxxx format)
+   - For InstaPay: username (@username)
+5. Uploads receipt/screenshot image
+6. Submits request (status: `PENDING`)
+7. Can view all previous requests and their status
+8. If admin requests more info, student can respond with text and/or additional receipt
+
+#### Admin Workflow
+1. Admin navigates to `/admin/manual-payments`
+2. Views all payment requests with status filters
+3. Reviews request details:
+   - User info (name, email, phone)
+   - Payment info (amount, method, sender info)
+   - Receipt image
+4. Takes action:
+   - **Approve**: Activates subscription immediately
+   - **Reject**: Marks as rejected with optional notes
+   - **Follow-up**: Sends message to student requesting more info
+
+### Database Models
+
+#### ManualPaymentRequest
+```prisma
+model ManualPaymentRequest {
+  id          String   @id @default(cuid())
+  userId      String
+  planId      String
+  amount      Float    // Amount in EGP
+  
+  // Payment method
+  paymentMethod   ManualPaymentMethod
+  
+  // Sender information
+  senderPhone     String?   // Phone for mobile wallets
+  senderInstaPayUsername String?   // InstaPay username
+  
+  // Receipt
+  receiptImageUrl String
+  additionalReceiptUrl String?  // If user re-uploads
+  
+  // Status
+  status      ManualPaymentStatus @default(PENDING)
+  
+  // Admin review
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  adminNotes  String?
+  
+  // Follow-up messaging
+  followUpMessage String?
+  followUpSentAt  DateTime?
+  userResponse    String?
+  userRespondedAt DateTime?
+}
+
+enum ManualPaymentMethod {
+  VODAFONE_CASH
+  ETISALAT_CASH
+  ORANGE_CASH
+  INSTAPAY
+}
+
+enum ManualPaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_INFO
+  INFO_PROVIDED
+}
+```
+
+### API Endpoints
+
+#### Student Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/payment/manual` | Get user's payment requests |
+| POST | `/api/payment/manual` | Submit new payment request |
+| PATCH | `/api/payment/manual` | Respond to follow-up request |
+| GET | `/api/payment/manual/settings` | Get public payment settings |
+| POST | `/api/upload/receipt` | Upload receipt image |
+
+#### Admin Endpoints
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/manual-payments` | List all requests (with filters) |
+| GET | `/api/admin/manual-payments/[id]` | Get request details |
+| PATCH | `/api/admin/manual-payments/[id]` | Approve/Reject/Follow-up |
+
+### Admin Configuration
+
+Navigate to `/admin/settings` and find "Manual Payment Settings" section:
+
+1. **Enable Manual Payment** - Master toggle for the feature
+2. **Payment Methods** - Enable/disable each method individually
+3. **Receiving Numbers** - Configure phone numbers/usernames for each method:
+   - Vodafone Cash number
+   - Etisalat Cash number
+   - Orange Cash number
+   - InstaPay username
+
+### Files Reference
+
+#### Student UI
+- `/src/app/payment/manual/page.tsx` - Main payment submission page
+
+#### Admin UI
+- `/src/app/admin/manual-payments/page.tsx` - Admin review interface
+- `/src/app/admin/settings/page.tsx` - Payment method configuration
+
+#### API Routes
+- `/src/app/api/payment/manual/route.ts` - Student payment operations
+- `/src/app/api/payment/manual/settings/route.ts` - Public settings
+- `/src/app/api/admin/manual-payments/route.ts` - Admin list operations
+- `/src/app/api/admin/manual-payments/[id]/route.ts` - Admin actions
+- `/src/app/api/upload/receipt/route.ts` - Receipt image upload
+
+### Security Considerations
+
+1. **Authentication Required**
+   - All endpoints require logged-in user
+   - Admin endpoints require ADMIN role
+
+2. **Input Validation**
+   - Phone numbers validated with Egyptian format (01xxxxxxxxx)
+   - File uploads limited to images (JPEG, PNG, WebP)
+   - Maximum file size: 10MB
+   - Zod schemas for all inputs
+
+3. **Rate Limiting**
+   - Users can only have one pending request at a time
+   - Prevents spam submissions
+
+4. **Audit Logging**
+   - All actions logged in AuditLog table
+   - Tracks who approved/rejected and when
+
+5. **Receipt Storage**
+   - Images stored securely (implement cloud storage for production)
+   - URLs not publicly guessable
+
+### Future Enhancements
+
+1. **Email Notifications**
+   - Email user when payment is approved/rejected
+   - Email admin when new payment is submitted
+   - Integration with email templates system
+
+2. **Automated Verification**
+   - OCR for receipt parsing
+   - API integration with mobile wallet providers (if available)
+
+3. **Payment Expiry**
+   - Auto-reject pending requests after X days
+   - Cleanup job for old rejected requests
+
+4. **Bulk Actions**
+   - Bulk approve similar payments
+   - Export payments for accounting
+
+### Testing Checklist
+
+- [ ] Submit payment with each method type
+- [ ] Test phone number validation (valid/invalid formats)
+- [ ] Test InstaPay username validation
+- [ ] Upload various image types and sizes
+- [ ] Test admin approve flow (verify subscription created)
+- [ ] Test admin reject flow
+- [ ] Test follow-up request flow
+- [ ] Test user response to follow-up
+- [ ] Verify only one pending request allowed
+- [ ] Test status filters in admin panel
+- [ ] Verify audit logs are created

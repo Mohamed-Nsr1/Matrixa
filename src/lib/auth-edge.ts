@@ -3,21 +3,39 @@
  * 
  * Pure JWT verification without database dependencies.
  * This file is safe to use in Edge middleware.
+ * 
+ * SECURITY: No default secrets - requires environment variables.
  */
 
 import { SignJWT, jwtVerify } from 'jose'
 
-// Default secrets for development (should always be overridden in production)
-const DEFAULT_ACCESS_SECRET = 'matrixa-dev-access-secret-key-2024-min-32-chars!'
-const DEFAULT_REFRESH_SECRET = 'matrixa-dev-refresh-secret-key-2024-min-32-chars!'
-
-// Secret keys (should be in environment variables)
-const getSecretKey = (key: string, defaultValue: string) => {
-  const secret = process.env[key] || defaultValue
-  if (!process.env[key] && process.env.NODE_ENV === 'production') {
-    console.error(`WARNING: Missing environment variable: ${key} - using default in production!`)
+// Secret keys - MUST be set via environment variables
+const getSecretKey = (key: string): Uint8Array => {
+  const secret = process.env[key]
+  
+  // SECURITY: No default secrets allowed
+  if (!secret) {
+    const errorMsg = `SECURITY ERROR: Missing required environment variable: ${key}. JWT secrets must be configured in production.`
+    console.error(errorMsg)
+    throw new Error(errorMsg)
   }
+  
+  // Validate minimum length for security
+  if (secret.length < 32) {
+    throw new Error(`SECURITY ERROR: ${key} must be at least 32 characters. Current length: ${secret.length}`)
+  }
+  
   return new TextEncoder().encode(secret)
+}
+
+// Cache for secret keys to avoid repeated lookups
+let accessSecretCache: Uint8Array | null = null
+
+const getAccessSecret = (): Uint8Array => {
+  if (!accessSecretCache) {
+    accessSecretCache = getSecretKey('JWT_ACCESS_SECRET')
+  }
+  return accessSecretCache
 }
 
 // JWT payload interface
@@ -37,7 +55,7 @@ export async function generateAccessToken(payload: JwtPayload): Promise<string> 
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('15m')
-    .sign(getSecretKey('JWT_ACCESS_SECRET', DEFAULT_ACCESS_SECRET))
+    .sign(getAccessSecret())
 }
 
 /**
@@ -54,7 +72,7 @@ export async function generateRefreshToken(): Promise<string> {
  */
 export async function verifyAccessToken(token: string): Promise<JwtPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, getSecretKey('JWT_ACCESS_SECRET', DEFAULT_ACCESS_SECRET))
+    const { payload } = await jwtVerify(token, getAccessSecret())
     return payload as unknown as JwtPayload
   } catch {
     return null

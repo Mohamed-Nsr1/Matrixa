@@ -1,7 +1,7 @@
 # Matrixa - Project Brain
 
-> **Last Updated:** 2025-01-18
-> **Version:** 1.5.0
+> **Last Updated:** 2025-01-19
+> **Version:** 1.6.0
 > **Status:** Production-Ready
 
 ---
@@ -258,6 +258,7 @@ matrixa/
 │   │   │   │   ├── leaderboard/
 │   │   │   │   ├── streaks/
 │   │   │   │   ├── badges/
+│   │   │   │   ├── email/     # Email tool API
 │   │   │   │   └── impersonate/
 │   │   │   ├── tasks/     # Task management
 │   │   │   ├── notes/     # Notes system
@@ -268,6 +269,8 @@ matrixa/
 │   │   │   ├── announcements/
 │   │   │   ├── badges/
 │   │   │   ├── planner/
+│   │   │   ├── payment/
+│   │   │   │   └── manual/
 │   │   │   └── push/
 │   │   ├── admin/         # Admin panel pages
 │   │   │   ├── page.tsx   # Dashboard
@@ -282,7 +285,10 @@ matrixa/
 │   │   │   ├── announcements/
 │   │   │   ├── leaderboard/
 │   │   │   ├── streaks/
+│   │   │   ├── manual-payments/
+│   │   │   ├── email/     # Email tool
 │   │   │   └── error.tsx  # Error boundary
+│   │   ├── access-denied/ # Access denied page
 │   │   ├── auth/          # Authentication pages
 │   │   │   ├── login/
 │   │   │   └── forgot-password/
@@ -513,6 +519,84 @@ The system uses a `SystemSettings` table for feature flags:
 | `leaderboardEnabled` | Leaderboard visible | `true` |
 | `testMode` | Payment in test mode | `true` |
 | `maintenanceMode` | Site in maintenance mode | `false` |
+| `gracePeriodDays` | Days after subscription end with full access | `7` |
+| `enableSignInRestriction` | Block login after grace period | `false` |
+| `signInRestrictionDays` | Days after expiry to block login | `30` |
+| `expiredTimetableDays` | Days visible in planner for expired users | `5` |
+| `expiredNotesLimit` | Notes visible for expired users | `20` |
+| `expiredFocusSessionsLimit` | Focus sessions visible for expired users | `10` |
+| `expiredPrivateLessonsLimit` | Private lessons visible for expired users | `5` |
+| `manualPaymentEnabled` | Enable manual payment via mobile wallets | `false` |
+| `vodafoneCashEnabled` | Enable Vodafone Cash | `false` |
+| `etisalatCashEnabled` | Enable Etisalat Cash | `false` |
+| `orangeCashEnabled` | Enable Orange Cash | `false` |
+| `instaPayEnabled` | Enable InstaPay | `false` |
+
+---
+
+## Subscription Expiration System
+
+### Subscription Lifecycle
+
+```
+Active Subscription
+       ↓
+Expires
+       ↓
+Grace Period (7 days default) - Full access
+       ↓
+Read-Only Mode - Limited viewing
+       ↓
+Sign-in Restriction (optional) - Access denied
+```
+
+### Read-Only Mode Features
+
+When a user's subscription expires (after grace period):
+
+1. **View-Only Access**: Users can see their existing data but cannot:
+   - Create new tasks
+   - Edit notes
+   - Start focus sessions
+   - Add private lessons
+
+2. **Feature Limits**: Admins configure how much expired users can see:
+   - **Timetable**: Only X days ahead (default: 5)
+   - **Notes**: Only X notes visible (default: 20)
+   - **Focus Sessions**: Only X sessions in history (default: 10)
+   - **Private Lessons**: Only X lessons visible (default: 5)
+
+3. **Visual Indicators**: Warning banners on all pages with renewal prompt
+
+### Sign-in Restriction
+
+Admins can optionally block login completely after a set period:
+- Redirects to `/access-denied` page
+- Shows subscription plans for renewal
+- Preserves user data for when they renew
+
+### Admin Email Tool
+
+Automated and manual email capabilities:
+
+**Triggers Available:**
+- `TRIAL_STARTED` - Welcome to trial
+- `TRIAL_ENDING` - Trial ending soon
+- `TRIAL_EXPIRED` - Trial ended
+- `SUBSCRIPTION_ACTIVE` - Payment confirmed
+- `SUBSCRIPTION_ENDING` - Renewal reminder
+- `SUBSCRIPTION_EXPIRED` - Subscription ended
+- `GRACE_PERIOD_STARTED` - Grace period active
+- `GRACE_PERIOD_ENDING` - Grace period ending
+- `ACCESS_DENIED` - Login blocked
+- `PAYMENT_SUCCESS` / `PAYMENT_FAILED`
+- `WELCOME` - New user
+
+**Features:**
+- Arabic and English content support
+- Variable substitution (userName, subscriptionEnd, etc.)
+- Recipient filtering (all, active, trial, expired)
+- Email logs with status tracking
 
 ### Admin Controls
 
@@ -527,6 +611,11 @@ Admins have full control ("King Mode") over:
 - **Streak Management**: View, edit, reset any user's streak
 - **Leaderboard**: Hide/show students, reset scores
 - **Curriculum**: Full CRUD with import/export (XLSX, CSV, JSON)
+- **Email Tool**: Create templates, send emails, track logs
+- **Subscription Expiration**: Configure grace period and sign-in restrictions
+- **Feature Limits**: Set viewing limits for expired users
+- **Badges Management**: Create, edit, and manage achievement badges
+- **Manual Payments**: Review, approve/reject payment requests, send follow-up messages
 
 ---
 
@@ -544,6 +633,55 @@ Admins have full control ("King Mode") over:
 - Opt-in (student chooses to appear)
 - Score based on: Study minutes, Tasks completed, Focus sessions
 - Admin can: Enable/disable, hide students, reset rankings
+
+### Badges System
+
+Achievement-based gamification:
+
+**Badge Types:**
+- `STREAK` - Streak achievements (7-day, 30-day, 100-day)
+- `TASKS` - Task completion milestones
+- `FOCUS` - Focus session achievements
+- `SUBJECTS` - Subject mastery badges
+- `SPECIAL` - Special achievements
+
+**Badge Rarities:**
+- Common, Uncommon, Rare, Epic, Legendary
+
+**Features:**
+- Progress tracking for each badge
+- XP rewards for earning badges
+- Admin can create and manage badges
+- Displayed in user profile
+
+---
+
+## Notes Organization
+
+### Folders
+
+- Nested folder structure for organizing notes
+- Color coding and icons
+- Note count per folder
+- Drag-and-drop reordering
+
+### Tags
+
+- Tag system for cross-folder organization
+- Color coding
+- Note count per tag
+- Quick filtering
+
+### Templates
+
+Pre-built note templates:
+
+- **General** - Basic note structure
+- **Cornell** - Cornell Notes method (Cues, Notes, Summary)
+- **Mind Map** - Hierarchical mind map structure
+- **Summary** - Key points summary template
+- **Flashcard** - Question/Answer format
+- **Study Guide** - Comprehensive study guide structure
 
 ---
 
@@ -566,14 +704,62 @@ Each entity has:
 
 ## Payment Integration
 
+The system supports two payment methods:
+
+### Paymob Integration (Automated)
+
 The system is ready for Paymob integration:
 
 - Payment intent creation endpoint: `/api/payment`
 - Webhook handler: `/api/payment/webhook`
 - Subscription lifecycle management
 - Admin test/live mode toggle
+- Access denied page with payment flow
 
 Currently uses mock payment flow for testing.
+
+### Manual Payment System (Production-Ready)
+
+✅ **Fully Implemented** - Manual payment via Egyptian mobile wallets and InstaPay:
+
+**Supported Payment Methods:**
+| Method | Type | Identifier |
+|--------|------|------------|
+| Vodafone Cash | Mobile Wallet | Phone number |
+| Etisalat Cash (E&) | Mobile Wallet | Phone number |
+| Orange Cash | Mobile Wallet | Phone number |
+| InstaPay | Bank Transfer | Username |
+
+**Features:**
+- Student uploads receipt/screenshot
+- Admin reviews and approves/rejects
+- Follow-up messaging for clarification
+- Automatic subscription activation on approval
+- Admin can enable/disable each payment method
+- Configurable receiving numbers/usernames
+
+**Pages:**
+- Student: `/payment/manual` - Submit payment requests
+- Admin: `/admin/manual-payments` - Review and manage requests
+
+**API Endpoints:**
+- Student: `GET/POST/PATCH /api/payment/manual`
+- Settings: `GET /api/payment/manual/settings`
+- Admin: `GET/PATCH /api/admin/manual-payments/[id]`
+- Upload: `POST /api/upload/receipt`
+
+---
+
+## Deployment Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [docs/SETUP.md](docs/SETUP.md) | Local development setup |
+| [docs/CLOUDFLARE_DEPLOYMENT.md](docs/CLOUDFLARE_DEPLOYMENT.md) | Production deployment to Cloudflare |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture details |
+| [docs/API.md](docs/API.md) | API endpoints reference |
+| [docs/EXTENDING.md](docs/EXTENDING.md) | Guide for adding new features |
+| [FUTURE_UPGRADE_GUIDE.md](FUTURE_UPGRADE_GUIDE.md) | Integration guides for Paymob, Email, Push, etc. |
 
 ---
 

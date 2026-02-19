@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import {
   BookOpen,
@@ -11,12 +11,15 @@ import {
   Settings,
   Plus,
   Loader2,
-  GraduationCap
+  GraduationCap,
+  Lock
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
+import { useSubscription, useCanWrite } from '@/contexts/SubscriptionContext'
+import UpgradeModal from '@/components/subscription/UpgradeModal'
 import PrivateLessonModal from '@/components/private-lessons/PrivateLessonModal'
 import PrivateLessonCard from '@/components/private-lessons/PrivateLessonCard'
 
@@ -53,6 +56,8 @@ const DAYS_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأرب
 
 export default function PrivateLessonsPage() {
   const { toast } = useToast()
+  const { isReadOnly, getFeatureLimit, isActive, isInTrial, isInGracePeriod } = useSubscription()
+  const { canWrite, requireWrite } = useCanWrite()
   const [user, setUser] = useState<User | null>(null)
   const [lessons, setLessons] = useState<PrivateLesson[]>([])
   const [loading, setLoading] = useState(true)
@@ -60,6 +65,15 @@ export default function PrivateLessonsPage() {
   // Modal state
   const [modalOpen, setModalOpen] = useState(false)
   const [editingLesson, setEditingLesson] = useState<PrivateLesson | null>(null)
+
+  // Get the limit for private lessons for expired users
+  const lessonsLimit = getFeatureLimit('privateLessons')
+
+  // Apply limit to lessons for expired users
+  const limitedLessons = useMemo(() => {
+    if (isActive || isInTrial || isInGracePeriod) return lessons
+    return lessons.slice(0, lessonsLimit)
+  }, [lessons, isActive, isInTrial, isInGracePeriod, lessonsLimit])
 
   useEffect(() => {
     fetchData()
@@ -90,18 +104,6 @@ export default function PrivateLessonsPage() {
     }
   }
 
-  // Get lessons for a specific day
-  const getLessonsForDay = (dayIndex: number) => {
-    return lessons.filter(lesson => {
-      try {
-        const days: number[] = JSON.parse(lesson.daysOfWeek)
-        return days.includes(dayIndex)
-      } catch {
-        return false
-      }
-    }).sort((a, b) => a.time.localeCompare(b.time))
-  }
-
   // Format time to Arabic format
   const formatTime = (time: string) => {
     const [hours, minutes] = time.split(':').map(Number)
@@ -112,12 +114,20 @@ export default function PrivateLessonsPage() {
 
   // Open modal for new lesson
   const handleAddLesson = () => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
     setEditingLesson(null)
     setModalOpen(true)
   }
 
   // Open modal for editing
   const handleEditLesson = (lesson: PrivateLesson) => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
     setEditingLesson(lesson)
     setModalOpen(true)
   }
@@ -149,7 +159,7 @@ export default function PrivateLessonsPage() {
   }
 
   // Calculate total weekly study time from private lessons
-  const totalWeeklyMinutes = lessons.reduce((total, lesson) => {
+  const totalWeeklyMinutes = limitedLessons.reduce((total, lesson) => {
     try {
       const days: number[] = JSON.parse(lesson.daysOfWeek)
       return total + (lesson.duration * days.length)
@@ -157,6 +167,18 @@ export default function PrivateLessonsPage() {
       return total
     }
   }, 0)
+
+  // Get lessons for a specific day (using limited lessons)
+  const getLessonsForDay = (dayIndex: number) => {
+    return limitedLessons.filter(lesson => {
+      try {
+        const days: number[] = JSON.parse(lesson.daysOfWeek)
+        return days.includes(dayIndex)
+      } catch {
+        return false
+      }
+    }).sort((a, b) => a.time.localeCompare(b.time))
+  }
 
   return (
     <div className="min-h-screen pb-24 lg:pb-8">
@@ -195,12 +217,34 @@ export default function PrivateLessonsPage() {
       {/* Main Content */}
       <main className="pt-20 px-4">
         <div className="container mx-auto max-w-6xl">
+          {/* Read-Only Warning Banner */}
+          {isReadOnly && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center gap-3">
+                <Lock className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium text-amber-400">وضع القراءة فقط</p>
+                  <p className="text-sm text-muted-foreground">
+                    انتهى اشتراكك. يمكنك مشاهدة {lessonsLimit} درس فقط. جدد اشتراكك للوصول الكامل.
+                  </p>
+                </div>
+                <Link href="/subscription">
+                  <Button size="sm" className="bg-amber-500 hover:bg-amber-600">
+                    تجديد الاشتراك
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Stats Summary */}
           <div className="mb-6 p-4 rounded-xl bg-card border border-border">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-4">
                 <div className="text-center">
-                  <p className="text-2xl font-bold text-primary">{lessons.length}</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {isReadOnly ? `${limitedLessons.length}/${lessonsLimit}` : lessons.length}
+                  </p>
                   <p className="text-xs text-muted-foreground">درس</p>
                 </div>
                 <div className="w-px h-10 bg-border" />
@@ -268,9 +312,9 @@ export default function PrivateLessonsPage() {
           {/* All Lessons List */}
           <div>
             <h2 className="text-lg font-semibold mb-4">جميع الدروس</h2>
-            {lessons.length > 0 ? (
+            {limitedLessons.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {lessons.map(lesson => (
+                {limitedLessons.map(lesson => (
                   <PrivateLessonCard
                     key={lesson.id}
                     lesson={lesson}
@@ -317,6 +361,9 @@ export default function PrivateLessonsPage() {
         onLessonCreated={handleLessonCreated}
         onLessonUpdated={handleLessonUpdated}
       />
+
+      {/* Upgrade Modal */}
+      <UpgradeModal />
     </div>
   )
 }

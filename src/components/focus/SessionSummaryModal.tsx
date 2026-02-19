@@ -9,7 +9,9 @@ import {
   Clock, 
   BookOpen,
   FileText,
-  X
+  X,
+  Save,
+  Notebook
 } from 'lucide-react'
 import {
   Dialog,
@@ -21,6 +23,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
+import { useToast } from '@/hooks/use-toast'
 
 interface SessionSummaryModalProps {
   open: boolean
@@ -33,8 +37,10 @@ interface SessionSummaryModalProps {
     brainDump?: string
     subjectName?: string
     lessonName?: string
+    subjectId?: string
+    lessonId?: string
   }
-  onSave: (notes?: string) => void
+  onSave: (notes?: string, saveAsNote?: boolean) => void
   onDismiss: () => void
 }
 
@@ -45,7 +51,10 @@ export default function SessionSummaryModal({
   onSave,
   onDismiss
 }: SessionSummaryModalProps) {
+  const { toast } = useToast()
   const [notes, setNotes] = useState('')
+  const [saveAsNote, setSaveAsNote] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -57,8 +66,44 @@ export default function SessionSummaryModal({
     return `${mins} دقيقة`
   }
 
-  const handleSave = () => {
-    onSave(notes.trim() || undefined)
+  const handleSave = async () => {
+    setIsSaving(true)
+    
+    if (saveAsNote && (sessionData.brainDump || notes)) {
+      try {
+        // Create note from brain dump and session notes
+        const noteContent = sessionData.brainDump 
+          ? notes 
+            ? `<h3>تدوينات الأفكار</h3><p>${sessionData.brainDump.replace(/\n/g, '<br/>')}</p><h3>ملاحظات إضافية</h3><p>${notes.replace(/\n/g, '<br/>')}</p>`
+            : `<p>${sessionData.brainDump.replace(/\n/g, '<br/>')}</p>`
+          : `<p>${notes.replace(/\n/g, '<br/>')}</p>`
+
+        const response = await fetch('/api/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: `ملاحظات جلسة تركيز - ${sessionData.subjectName || 'عامة'}`,
+            content: noteContent,
+            subjectId: sessionData.subjectId || null,
+            lessonId: sessionData.lessonId || null,
+          })
+        })
+
+        const data = await response.json()
+        
+        if (data.success) {
+          toast({
+            title: 'تم حفظ الملاحظة',
+            description: 'تم إنشاء ملاحظة من جلسة التركيز'
+          })
+        }
+      } catch (error) {
+        console.error('Error saving note:', error)
+      }
+    }
+
+    onSave(notes.trim() || undefined, saveAsNote)
+    setIsSaving(false)
     onOpenChange(false)
   }
 
@@ -72,33 +117,31 @@ export default function SessionSummaryModal({
     sessionData.questionsSolved > 0 || 
     sessionData.revisionsCompleted > 0
 
+  const hasContentToSave = sessionData.brainDump || notes
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[450px] text-right" dir="rtl">
+      <DialogContent className="sm:max-w-[450px] text-right bg-gradient-to-b from-slate-900 to-slate-950 border-white/10" dir="rtl">
         <DialogHeader>
-          <DialogTitle className="text-center text-xl">
+          <DialogTitle className="text-center text-xl flex items-center justify-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-emerald/20 flex items-center justify-center">
+              <Check className="w-4 h-4 text-emerald" />
+            </div>
             ملخص الجلسة
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          {/* Success Icon */}
-          <div className="flex justify-center">
-            <div className="w-16 h-16 rounded-full bg-emerald/20 flex items-center justify-center">
-              <Check className="w-8 h-8 text-emerald" />
-            </div>
-          </div>
-
           {/* Duration */}
           <div className="flex items-center justify-center gap-2 text-lg">
-            <Clock className="w-5 h-5 text-muted-foreground" />
+            <Clock className="w-5 h-5 text-violet-400" />
             <span className="font-semibold">{formatDuration(sessionData.duration)}</span>
           </div>
 
           {/* Subject/Lesson */}
           {(sessionData.subjectName || sessionData.lessonName) && (
-            <div className="bg-muted/50 rounded-lg p-3 flex items-center gap-2 justify-center">
-              <BookOpen className="w-4 h-4 text-muted-foreground" />
+            <div className="bg-violet-500/10 rounded-lg p-3 flex items-center gap-2 justify-center border border-violet-500/20">
+              <BookOpen className="w-4 h-4 text-violet-400" />
               <span className="text-sm">
                 {sessionData.subjectName}
                 {sessionData.lessonName && ` - ${sessionData.lessonName}`}
@@ -146,7 +189,7 @@ export default function SessionSummaryModal({
                 <FileText className="w-4 h-4" />
                 <span>تدوينات الأفكار</span>
               </div>
-              <div className="bg-muted/30 rounded-lg p-3 text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">
+              <div className="bg-white/5 rounded-lg p-3 text-sm whitespace-pre-wrap max-h-32 overflow-y-auto border border-white/5">
                 {sessionData.brainDump}
               </div>
             </div>
@@ -159,18 +202,48 @@ export default function SessionSummaryModal({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="أضف ملاحظات عن الجلسة..."
-              className="min-h-[80px] text-right"
+              className="min-h-[80px] text-right bg-white/5 border-white/10 focus:border-violet-500/50"
               dir="rtl"
             />
           </div>
+
+          {/* Save as Note Option */}
+          {hasContentToSave && (
+            <div className="flex items-center gap-3 p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
+              <Checkbox
+                id="saveAsNote"
+                checked={saveAsNote}
+                onCheckedChange={(checked) => setSaveAsNote(checked as boolean)}
+                className="data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500"
+              />
+              <label htmlFor="saveAsNote" className="text-sm cursor-pointer flex items-center gap-2">
+                <Notebook className="w-4 h-4 text-cyan-400" />
+                <span>حفظ كملحوظة في دفتر الملاحظات</span>
+              </label>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0 flex-row-reverse">
-          <Button variant="outline" onClick={handleDismiss}>
+          <Button variant="ghost" onClick={handleDismiss} className="hover:bg-white/5">
             تخطي
           </Button>
-          <Button onClick={handleSave}>
-            حفظ الملخص
+          <Button 
+            onClick={handleSave} 
+            disabled={isSaving}
+            className="bg-gradient-to-r from-violet-600 to-primary hover:from-violet-500 hover:to-primary/90"
+          >
+            {isSaving ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin ml-2" />
+                جاري الحفظ...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 ml-1" />
+                حفظ الملخص
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

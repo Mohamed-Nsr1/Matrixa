@@ -1,6 +1,8 @@
 /**
  * Curriculum Import Utilities
  * Parse and import curriculum data from files
+ * 
+ * SECURITY: Content-based file validation to prevent malicious file uploads
  */
 
 import * as XLSX from 'xlsx'
@@ -426,4 +428,179 @@ export function detectFileFormat(filename: string, contentType?: string): 'json'
   }
   
   return null
+}
+
+/**
+ * SECURITY: Validate file content using magic bytes
+ * Prevents malicious files with legitimate extensions
+ */
+export function validateFileContent(buffer: Buffer, claimedFormat: 'json' | 'csv' | 'xlsx'): { 
+  valid: boolean
+  detectedFormat: 'json' | 'csv' | 'xlsx' | null
+  error?: string 
+} {
+  // Minimum buffer size check
+  if (buffer.length < 4) {
+    return { valid: false, detectedFormat: null, error: 'File is too small' }
+  }
+
+  // Get first bytes for magic number detection
+  const header = buffer.slice(0, 8)
+  
+  // Check for XLSX (ZIP-based Office format)
+  // XLSX files start with PK (0x50 0x4B) - ZIP signature
+  const isZip = header[0] === 0x50 && header[1] === 0x4B
+  
+  // Check for XLS (older Excel format) - D0 CF 11 E0
+  const isOle = header[0] === 0xD0 && header[1] === 0xCF && 
+                header[2] === 0x11 && header[3] === 0xE0
+  
+  // Check content as text for JSON/CSV
+  const textContent = buffer.toString('utf-8', 0, Math.min(1024, buffer.length)).trim()
+  const startsWithBrace = textContent.startsWith('{') || textContent.startsWith('[')
+  
+  let detectedFormat: 'json' | 'csv' | 'xlsx' | null = null
+
+  // Detect actual format
+  if (isZip || isOle) {
+    detectedFormat = 'xlsx'
+  } else if (startsWithBrace) {
+    // Try to parse as JSON
+    try {
+      JSON.parse(textContent)
+      detectedFormat = 'json'
+    } catch {
+      // Not valid JSON, might be CSV
+    }
+  }
+  
+  // CSV detection - harder to validate, check if it looks like CSV data
+  if (!detectedFormat && claimedFormat === 'csv') {
+    // Check if content contains typical CSV patterns
+    const hasCommasOrTabs = textContent.includes(',') || textContent.includes('\t')
+    const hasNewlines = textContent.includes('\n') || textContent.includes('\r')
+    
+    if (hasCommasOrTabs && hasNewlines) {
+      detectedFormat = 'csv'
+    } else if (hasCommasOrTabs || hasNewlines) {
+      // Single line CSV is valid
+      detectedFormat = 'csv'
+    }
+  }
+
+  // If we still haven't detected, default based on claimed format for simple text
+  if (!detectedFormat && claimedFormat === 'json') {
+    // Check if entire file is valid JSON
+    try {
+      JSON.parse(buffer.toString('utf-8'))
+      detectedFormat = 'json'
+    } catch {
+      // Not valid JSON
+    }
+  }
+
+  // Validate claimed format matches detected format
+  if (detectedFormat && detectedFormat !== claimedFormat) {
+    return {
+      valid: false,
+      detectedFormat,
+      error: `File content does not match claimed format. Expected ${claimedFormat}, detected ${detectedFormat}`
+    }
+  }
+
+  // Additional validation for XLSX
+  if (claimedFormat === 'xlsx') {
+    if (!isZip && !isOle) {
+      return {
+        valid: false,
+        detectedFormat: null,
+        error: 'Invalid XLSX file: File does not have required ZIP or OLE signature'
+      }
+    }
+    
+    // Try to open with XLSX library
+    try {
+      const workbook = XLSX.read(buffer, { type: 'buffer' })
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        return {
+          valid: false,
+          detectedFormat: 'xlsx',
+          error: 'Invalid XLSX file: No sheets found'
+        }
+      }
+    } catch (error) {
+      return {
+        valid: false,
+        detectedFormat: 'xlsx',
+        error: 'Invalid XLSX file: Unable to parse spreadsheet'
+      }
+    }
+  }
+
+  // Additional validation for JSON
+  if (claimedFormat === 'json') {
+    try {
+      const parsed = JSON.parse(buffer.toString('utf-8'))
+      if (!Array.isArray(parsed) && typeof parsed !== 'object') {
+        return {
+          valid: false,
+          detectedFormat: 'json',
+          error: 'Invalid JSON: Expected array or object'
+        }
+      }
+    } catch (error) {
+      return {
+        valid: false,
+        detectedFormat: null,
+        error: 'Invalid JSON: Unable to parse file content'
+      }
+    }
+  }
+
+  return { valid: true, detectedFormat: claimedFormat }
+}
+
+/**
+ * SECURITY: Comprehensive file validation
+ */
+export function validateImportFile(
+  buffer: Buffer, 
+  filename: string, 
+  contentType?: string
+): { 
+  valid: boolean
+  format: 'json' | 'csv' | 'xlsx' | null
+  error?: string 
+} {
+  // Check file size (max 10MB)
+  const maxSize = 10 * 1024 * 1024
+  if (buffer.length > maxSize) {
+    return {
+      valid: false,
+      format: null,
+      error: 'File is too large. Maximum size is 10MB'
+    }
+  }
+
+  // Detect format from filename
+  const detectedFormat = detectFileFormat(filename, contentType)
+  if (!detectedFormat) {
+    return {
+      valid: false,
+      format: null,
+      error: 'Unsupported file format. Please upload JSON, CSV, or XLSX file'
+    }
+  }
+
+  // Validate file content
+  const contentValidation = validateFileContent(buffer, detectedFormat)
+  if (!contentValidation.valid) {
+    return {
+      valid: false,
+      format: contentValidation.detectedFormat,
+      error: contentValidation.error
+    }
+  }
+
+  return { valid: true, format: detectedFormat }
 }

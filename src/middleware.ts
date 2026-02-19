@@ -18,7 +18,8 @@ const publicRoutes = [
   '/auth/forgot-password',
   '/landing',
   '/onboarding',
-  '/subscription'
+  '/subscription',
+  '/access-denied'
 ]
 
 // Routes exempt from maintenance mode
@@ -56,9 +57,6 @@ function getRedirectUrl(request: NextRequest, path: string): URL {
   const forwardedHost = request.headers.get('x-forwarded-host')
   const hostHeader = request.headers.get('host')
   
-  // Log headers for debugging
-  console.log('[MW Headers]', { previewHost, forwardedProto, forwardedHost, hostHeader })
-  
   // Check if we have a valid external domain (contains a dot for TLD)
   const isValidExternalDomain = (domain: string | null): boolean => {
     if (!domain) return false
@@ -77,27 +75,23 @@ function getRedirectUrl(request: NextRequest, path: string): URL {
   
   // Priority 1: Preview host (abc header) - most reliable for preview environments
   if (isValidExternalDomain(previewHost)) {
-    console.log('[MW] Using preview host:', previewHost)
     return new URL(`https://${previewHost}${path}`)
   }
   
   // Priority 2: Forwarded host (from reverse proxy)
   if (isValidExternalDomain(forwardedHost)) {
     const protocol = forwardedProto || 'https'
-    console.log('[MW] Using forwarded host:', forwardedHost)
     return new URL(`${protocol}://${forwardedHost}${path}`)
   }
   
   // Priority 3: Host header (might be external)
   if (isValidExternalDomain(hostHeader)) {
     const protocol = forwardedProto || 'https'
-    console.log('[MW] Using host header:', hostHeader)
     return new URL(`${protocol}://${hostHeader}${path}`)
   }
   
   // Priority 4: Check if abc header exists even without a dot (might be a local development proxy)
   if (previewHost && previewHost.length > 0) {
-    console.log('[MW] Using abc header (no dot):', previewHost)
     return new URL(`https://${previewHost}${path}`)
   }
   
@@ -105,7 +99,6 @@ function getRedirectUrl(request: NextRequest, path: string): URL {
   // This works for localhost:3000 style URLs
   const url = request.nextUrl.clone()
   url.pathname = path
-  console.log('[MW] Using request URL:', url.toString())
   return url
 }
 
@@ -132,24 +125,50 @@ function isSubscriptionEnabledFromCookie(request: NextRequest): boolean {
 
 /**
  * Check subscription access
+ * Returns detailed subscription status for UI handling
  */
-function hasSubscriptionAccessFromCookies(request: NextRequest): {
+function getSubscriptionStatusFromCookies(request: NextRequest): {
   hasAccess: boolean
+  isReadOnly: boolean
   reason: string
+  status: 'active' | 'trial' | 'grace_period' | 'expired' | 'access_denied'
+  isAccessDenied: boolean
 } {
   const subscriptionActive = request.cookies.get('subscriptionActive')?.value
   const isInTrial = request.cookies.get('isInTrial')?.value
+  const isInGracePeriod = request.cookies.get('isInGracePeriod')?.value
+  const isAccessDenied = request.cookies.get('isAccessDenied')?.value
   const remainingTrialDays = parseInt(request.cookies.get('remainingTrialDays')?.value || '0', 10)
 
+  // Check if access is completely denied
+  if (isAccessDenied === 'true') {
+    return { 
+      hasAccess: false, 
+      isReadOnly: true, 
+      reason: 'access_denied', 
+      status: 'access_denied',
+      isAccessDenied: true 
+    }
+  }
+
+  // Active subscription - full access
   if (subscriptionActive === 'true') {
-    return { hasAccess: true, reason: 'subscription_active' }
+    return { hasAccess: true, isReadOnly: false, reason: 'subscription_active', status: 'active', isAccessDenied: false }
   }
 
+  // Active trial - full access
   if (isInTrial === 'true' && remainingTrialDays > 0) {
-    return { hasAccess: true, reason: 'trial_active' }
+    return { hasAccess: true, isReadOnly: false, reason: 'trial_active', status: 'trial', isAccessDenied: false }
   }
 
-  return { hasAccess: false, reason: 'no_subscription' }
+  // Grace period - read-only access (can view but not edit)
+  if (isInGracePeriod === 'true') {
+    return { hasAccess: true, isReadOnly: true, reason: 'grace_period', status: 'grace_period', isAccessDenied: false }
+  }
+
+  // Expired - read-only access (can view but not edit)
+  // We allow access to dashboard so users can see their data
+  return { hasAccess: true, isReadOnly: true, reason: 'no_subscription', status: 'expired', isAccessDenied: false }
 }
 
 /**
@@ -168,17 +187,6 @@ function isMaintenanceModeFromCookie(request: NextRequest): boolean {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const previewHost = request.headers.get('abc')
-
-  // Log all requests for debugging
-  console.log(`[MW] ${pathname} | preview: ${previewHost || 'none'} | cookies:`, {
-    accessToken: request.cookies.get('accessToken')?.value ? 'present' : 'missing',
-    subscriptionEnabled: request.cookies.get('subscriptionEnabled')?.value,
-    subscriptionActive: request.cookies.get('subscriptionActive')?.value,
-    isInTrial: request.cookies.get('isInTrial')?.value,
-    remainingTrialDays: request.cookies.get('remainingTrialDays')?.value,
-    onboardingCompleted: request.cookies.get('onboardingCompleted')?.value
-  })
 
   // Skip API routes
   if (pathname.startsWith('/api/')) {
@@ -198,7 +206,6 @@ export async function middleware(request: NextRequest) {
       if (accessToken) {
         const payload = await verifyAccessToken(accessToken)
         if (payload) {
-          console.log(`[MW] Auth page with valid token -> ${payload.role === 'ADMIN' ? '/admin' : '/dashboard'}`)
           const dest = payload.role === 'ADMIN' ? '/admin' : '/dashboard'
           return redirect(getRedirectUrl(request, dest))
         }
@@ -214,7 +221,6 @@ export async function middleware(request: NextRequest) {
           const completed = payload.onboardingCompleted === true || 
             request.cookies.get('onboardingCompleted')?.value === 'true'
           if (completed) {
-            console.log('[MW] Onboarding already completed -> /dashboard')
             return redirect(getRedirectUrl(request, '/dashboard'))
           }
         }
@@ -228,7 +234,6 @@ export async function middleware(request: NextRequest) {
   const accessToken = request.cookies.get('accessToken')?.value
 
   if (!accessToken) {
-    console.log('[MW] No token -> /auth/login')
     const loginUrl = getRedirectUrl(request, '/auth/login')
     loginUrl.searchParams.set('redirect', pathname)
     return redirect(loginUrl)
@@ -237,7 +242,6 @@ export async function middleware(request: NextRequest) {
   const payload = await verifyAccessToken(accessToken)
 
   if (!payload) {
-    console.log('[MW] Invalid token -> /auth/login')
     const loginUrl = getRedirectUrl(request, '/auth/login')
     loginUrl.searchParams.set('redirect', pathname)
     return redirect(loginUrl)
@@ -245,7 +249,6 @@ export async function middleware(request: NextRequest) {
 
   // Check if banned
   if (payload.role !== 'ADMIN' && isUserBannedFromCookie(request)) {
-    console.log('[MW] User banned -> /auth/login')
     const loginUrl = getRedirectUrl(request, '/auth/login')
     loginUrl.searchParams.set('banned', 'true')
     const response = redirect(loginUrl)
@@ -258,7 +261,6 @@ export async function middleware(request: NextRequest) {
   if (payload.role !== 'ADMIN' && isMaintenanceModeFromCookie(request)) {
     const isExempt = maintenanceExemptRoutes.some(route => pathname.startsWith(route))
     if (!isExempt) {
-      console.log('[MW] Maintenance mode active -> /maintenance')
       return redirect(getRedirectUrl(request, '/maintenance'))
     }
   }
@@ -266,7 +268,6 @@ export async function middleware(request: NextRequest) {
   // Admin routes
   if (adminRoutes.some(route => pathname.startsWith(route))) {
     if (payload.role !== 'ADMIN') {
-      console.log('[MW] Non-admin on admin route -> /dashboard')
       return redirect(getRedirectUrl(request, '/dashboard'))
     }
     return NextResponse.next()
@@ -274,7 +275,6 @@ export async function middleware(request: NextRequest) {
 
   // Redirect admins to admin panel
   if (payload.role === 'ADMIN') {
-    console.log('[MW] Admin on student route -> /admin')
     return redirect(getRedirectUrl(request, '/admin'))
   }
 
@@ -283,7 +283,6 @@ export async function middleware(request: NextRequest) {
     request.cookies.get('onboardingCompleted')?.value === 'true'
 
   if (!hasCompletedOnboarding && pathname !== '/onboarding') {
-    console.log('[MW] Onboarding not complete -> /onboarding')
     return redirect(getRedirectUrl(request, '/onboarding'))
   }
 
@@ -292,23 +291,40 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Subscription check
+  // Subscription check - Soft Lock Approach
+  // We allow access to dashboard even with expired subscription (read-only mode)
+  // The UI will show banners and restrict write operations
   const subscriptionEnabled = isSubscriptionEnabledFromCookie(request)
-  console.log('[MW] Subscription enabled:', subscriptionEnabled)
   
   if (subscriptionEnabled) {
-    const access = hasSubscriptionAccessFromCookies(request)
-    console.log('[MW] Subscription access:', access)
-    if (!access.hasAccess) {
-      console.log(`[MW] No subscription (${access.reason}) -> /subscription`)
+    const status = getSubscriptionStatusFromCookies(request)
+    
+    // If access is completely denied, redirect to access-denied page
+    if (status.isAccessDenied) {
+      const deniedUrl = getRedirectUrl(request, '/access-denied')
+      deniedUrl.searchParams.set('reason', status.reason)
+      return redirect(deniedUrl)
+    }
+    
+    // Set headers for frontend to use
+    const response = NextResponse.next()
+    response.headers.set('x-subscription-status', status.status)
+    response.headers.set('x-subscription-readonly', status.isReadOnly ? 'true' : 'false')
+    response.headers.set('x-subscription-reason', status.reason)
+    
+    // Still redirect to subscription page if explicitly on a "create new" page and expired
+    // But allow viewing existing data
+    const isCreationRoute = pathname.includes('/new') || pathname.includes('/create')
+    if (isCreationRoute && status.isReadOnly) {
       const subUrl = getRedirectUrl(request, '/subscription')
-      subUrl.searchParams.set('reason', access.reason)
+      subUrl.searchParams.set('reason', status.reason)
       subUrl.searchParams.set('redirect', pathname)
       return redirect(subUrl)
     }
+    
+    return response
   }
 
-  console.log(`[MW] Access granted to ${pathname}`)
   return NextResponse.next()
 }
 

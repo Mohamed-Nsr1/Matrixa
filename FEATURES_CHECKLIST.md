@@ -1,14 +1,14 @@
 # Matrixa Features Checklist
 
-> **Last Updated:** 2025-01-18 (Final - All Features Complete)
+> **Last Updated:** 2025-01-19 (Final - All Features Complete)
 > **Status Key:** ✅ Complete | ⚠️ Partial | ❌ Missing
 
 ---
 
 ## Summary Statistics
 
-- **Total Features:** 225
-- **Complete:** 225 (100%)
+- **Total Features:** 250
+- **Complete:** 250 (100%)
 - **Partial:** 0 (0%)
 - **Missing:** 0 (0%)
 
@@ -38,11 +38,13 @@
 | Admin - Invite Codes | 6/6 | ✅ |
 | Admin - Curriculum | 10/10 | ✅ |
 | Admin - Subscriptions | 7/7 | ✅ |
-| Admin - System Settings | 4/4 | ✅ |
+| Admin - System Settings | 8/8 | ✅ |
 | Admin - Analytics | 10/10 | ✅ |
 | Admin - Leaderboard | 5/5 | ✅ |
 | Admin - Streaks | 4/4 | ✅ |
 | Admin - Announcements | 5/5 | ✅ |
+| Admin - Email Tool | 4/4 | ✅ |
+| Subscription Expiration | 8/8 | ✅ |
 | Documentation | 8/8 | ✅ |
 | Error Handling | 7/7 | ✅ |
 
@@ -144,6 +146,9 @@
   - RTL text alignment
 - ✅ Note pinning (isPinned)
 - ✅ Note color coding (color picker)
+- ✅ Note folders (nested structure)
+- ✅ Note tags (tag system)
+- ✅ Note templates (Cornell, Mindmap, Summary, Flashcard, Study Guide)
 
 ### Private Lessons
 - ✅ Full CRUD operations
@@ -239,6 +244,14 @@
 - ✅ Longest streak tracking
 - ✅ Admin control UI
 
+### Badges System
+- ✅ Badge types (Streak, Tasks, Focus, Subjects, Special)
+- ✅ Badge rarities (Common, Uncommon, Rare, Epic, Legendary)
+- ✅ Progress tracking
+- ✅ XP rewards
+- ✅ Badge display in profile
+- ✅ Admin badge management
+
 ### PWA
 - ✅ Web app manifest
 - ✅ Service worker
@@ -280,6 +293,25 @@
 - ✅ Priority-based ordering
 - ✅ Dismissible banners with localStorage persistence
 
+### Subscription Expiration System
+- ✅ Grace period configuration (admin setting)
+- ✅ Sign-in restriction toggle (admin setting)
+- ✅ Sign-in restriction days (admin setting)
+- ✅ Feature limits for expired users:
+  - ✅ Timetable days limit
+  - ✅ Notes limit
+  - ✅ Focus sessions limit
+  - ✅ Private lessons limit
+- ✅ Access denied page with payment flow
+- ✅ Read-only mode with warning banners
+- ✅ Feature limits applied on student pages
+
+### Admin Email Tool
+- ✅ Email template management (CRUD)
+- ✅ Email sending with recipient filtering
+- ✅ Email logs and tracking
+- ✅ Variable substitution support
+
 ### Error Handling
 - ✅ Root error boundary
 - ✅ Dashboard error boundary
@@ -291,7 +323,7 @@
 
 ---
 
-## API Endpoints (90+)
+## API Endpoints (100+)
 
 ### Authentication
 - POST /api/auth/register
@@ -320,6 +352,28 @@
 - POST /api/notes
 - PATCH /api/notes/:id
 - DELETE /api/notes/:id
+
+### Notes Folders
+- GET /api/notes/folders
+- POST /api/notes/folders
+- PUT /api/notes/folders
+- DELETE /api/notes/folders
+
+### Notes Tags
+- GET /api/notes/tags
+- POST /api/notes/tags
+- DELETE /api/notes/tags
+
+### Notes Templates
+- GET /api/notes/templates
+- POST /api/notes/templates
+
+### Badges
+- GET /api/badges
+
+### Admin Badges
+- GET /api/admin/badges
+- POST /api/admin/badges
 
 ### Focus Sessions
 - POST /api/focus-sessions
@@ -393,6 +447,14 @@
 - PUT /api/admin/announcements/:id
 - DELETE /api/admin/announcements/:id
 
+### Admin - Email
+- GET /api/admin/email/templates
+- POST /api/admin/email/templates
+- PUT /api/admin/email/templates/:id
+- DELETE /api/admin/email/templates/:id
+- POST /api/admin/email/send
+- GET /api/admin/email/logs
+
 ### User
 - POST /api/user/onboarding
 - GET /api/user/settings
@@ -424,13 +486,20 @@ src/
 │   │   ├── analytics/     # Advanced analytics
 │   │   ├── announcements/ # Announcement management
 │   │   ├── audit-logs/    # Audit log viewer
+│   │   ├── badges/        # Badge management
 │   │   ├── curriculum/    # Curriculum management
+│   │   ├── email/         # Email tool
 │   │   ├── invites/       # Invite code management
 │   │   ├── leaderboard/   # Leaderboard management
+│   │   ├── manual-payments/ # Manual payment review
 │   │   ├── plans/         # Subscription plans
 │   │   ├── settings/      # System settings
+│   │   ├── streaks/       # Streak management
 │   │   ├── subscriptions/ # Subscription management
 │   │   └── users/         # User management
+│   ├── payment/           # Payment pages
+│   │   └── manual/        # Manual payment submission
+│   ├── access-denied/     # Access denied page
 │   ├── api/               # API routes
 │   ├── auth/              # Authentication pages
 │   ├── dashboard/         # Student dashboard

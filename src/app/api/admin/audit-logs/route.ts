@@ -14,8 +14,8 @@ export async function GET() {
 
     if (!user || user.role !== 'ADMIN') {
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
       )
     }
 

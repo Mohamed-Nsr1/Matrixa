@@ -1,172 +1,241 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-import { AlertCircle, Clock, CreditCard, X } from 'lucide-react'
+import {
+  AlertCircle,
+  Clock,
+  Crown,
+  X,
+  Sparkles,
+  ArrowRight
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useToast } from '@/hooks/use-toast'
-
-interface SubscriptionStatus {
-  status: string
-  isActive: boolean
-  isInTrial: boolean
-  remainingTrialDays: number
-  subscriptionEnd?: string
-  plan?: {
-    id: string
-    name: string
-    nameAr: string
-  }
-}
+import { Card } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
+import { cn } from '@/lib/utils'
+import { useSubscription } from '@/contexts/SubscriptionContext'
 
 interface SubscriptionBannerProps {
-  onStatusChange?: (status: SubscriptionStatus) => void
+  className?: string
+  dismissible?: boolean
+  variant?: 'banner' | 'card'
 }
 
-export function SubscriptionBanner({ onStatusChange }: SubscriptionBannerProps) {
-  const { toast } = useToast()
-  const [status, setStatus] = useState<SubscriptionStatus | null>(null)
-  const [loading, setLoading] = useState(true)
+/**
+ * Subscription Banner Component
+ * 
+ * Shows contextual messages based on subscription status:
+ * - Trial: Shows remaining days with progress
+ * - Grace Period: Warning that subscription expired but still has access
+ * - Expired: Read-only mode with upgrade prompt
+ */
+export default function SubscriptionBanner({
+  className,
+  dismissible = true,
+  variant = 'banner'
+}: SubscriptionBannerProps) {
+  const { status, isInTrial, isInGracePeriod, isReadOnly, remainingTrialDays, daysSinceExpiry, gracePeriodEnd, isLoading } = useSubscription()
   const [dismissed, setDismissed] = useState(false)
 
-  useEffect(() => {
-    fetchStatus()
-  }, [])
+  // Don't show if loading or active subscription
+  if (isLoading || status === 'ACTIVE') {
+    return null
+  }
 
-  const fetchStatus = async () => {
-    try {
-      const res = await fetch('/api/subscription/status')
-      const data = await res.json()
-      
-      if (data.success) {
-        setStatus(data.subscription)
-        onStatusChange?.(data.subscription)
+  // Don't show if dismissed
+  if (dismissed) {
+    return null
+  }
+
+  // Calculate grace period remaining
+  const getGracePeriodRemaining = () => {
+    if (!gracePeriodEnd) return 0
+    const now = new Date()
+    const end = new Date(gracePeriodEnd)
+    const diff = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+    return Math.max(0, diff)
+  }
+
+  const graceRemaining = getGracePeriodRemaining()
+
+  // Banner content based on status
+  const getContent = () => {
+    if (isInTrial && remainingTrialDays > 0) {
+      return {
+        icon: <Sparkles className="w-5 h-5" />,
+        title: 'الفترة التجريبية',
+        description: `متبقي ${remainingTrialDays} يوم - اشترك الآن للاستمرار في استخدام جميع المميزات`,
+        progress: Math.max(0, 100 - (remainingTrialDays / 14) * 100),
+        progressLabel: `${remainingTrialDays} يوم متبقي`,
+        variant: 'trial' as const,
+        cta: 'اشترك الآن',
+        ctaLink: '/subscription'
       }
-    } catch {
-      // Silent fail
-    } finally {
-      setLoading(false)
+    }
+
+    if (isInGracePeriod) {
+      return {
+        icon: <Clock className="w-5 h-5" />,
+        title: 'انتهى الاشتراك',
+        description: `متبقي ${graceRemaining} أيام للتجديد - بعد ذلك ستصبح حسابك للقراءة فقط`,
+        progress: Math.max(0, 100 - (graceRemaining / 7) * 100),
+        progressLabel: `${graceRemaining} يوم متبقي`,
+        variant: 'warning' as const,
+        cta: 'جدد الآن',
+        ctaLink: '/subscription'
+      }
+    }
+
+    if (isReadOnly) {
+      return {
+        icon: <AlertCircle className="w-5 h-5" />,
+        title: 'وضع القراءة فقط',
+        description: 'انتهى اشتراكك - يمكنك عرض بياناتك ولكن لا يمكنك تعديلها. جدد اشتراكك لاستعادة الوصول الكامل.',
+        progress: undefined,
+        progressLabel: undefined,
+        variant: 'error' as const,
+        cta: 'جدد الاشتراك',
+        ctaLink: '/subscription'
+      }
+    }
+
+    return null
+  }
+
+  const content = getContent()
+  if (!content) return null
+
+  const variantStyles = {
+    trial: {
+      bg: 'bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent',
+      border: 'border-amber-500/20',
+      iconColor: 'text-amber-400',
+      titleColor: 'text-amber-300',
+      buttonVariant: 'default' as const
+    },
+    warning: {
+      bg: 'bg-gradient-to-r from-orange-500/10 via-orange-500/5 to-transparent',
+      border: 'border-orange-500/20',
+      iconColor: 'text-orange-400',
+      titleColor: 'text-orange-300',
+      buttonVariant: 'default' as const
+    },
+    error: {
+      bg: 'bg-gradient-to-r from-red-500/10 via-red-500/5 to-transparent',
+      border: 'border-red-500/20',
+      iconColor: 'text-red-400',
+      titleColor: 'text-red-300',
+      buttonVariant: 'destructive' as const
     }
   }
 
-  // Don't show banner while loading
-  if (loading || !status) {
-    return null
-  }
+  const styles = variantStyles[content.variant]
 
-  // Don't show if subscription is active (not in trial)
-  if (status.isActive && !status.isInTrial) {
-    return null
-  }
-
-  // Don't show if dismissed and in trial (will show again next session)
-  if (dismissed && status.isInTrial) {
-    return null
-  }
-
-  // Trial banner - amber/yellow theme
-  if (status.isInTrial && status.remainingTrialDays > 0) {
+  if (variant === 'card') {
     return (
-      <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-500/20">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-amber-500/20">
-                <Clock className="w-4 h-4 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">
-                  الفترة التجريبية
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  متبقي <span className="text-amber-400 font-semibold">{status.remainingTrialDays}</span> يوم
-                </p>
+      <Card className={cn(
+        'relative overflow-hidden border',
+        styles.bg,
+        styles.border,
+        className
+      )}>
+        <div className="p-4">
+          <div className="flex items-start gap-4">
+            <div className={cn('p-2 rounded-lg bg-white/5', styles.iconColor)}>
+              {content.icon}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <h3 className={cn('font-semibold mb-1', styles.titleColor)}>
+                {content.title}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                {content.description}
+              </p>
+
+              {content.progress !== undefined && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-muted-foreground">{content.progressLabel}</span>
+                    <span>{Math.round(content.progress)}%</span>
+                  </div>
+                  <Progress value={content.progress} className="h-1.5" />
+                </div>
+              )}
+
+              <div className="mt-4 flex items-center gap-3">
+                <Button asChild size="sm" variant={styles.buttonVariant}>
+                  <Link href={content.ctaLink}>
+                    <Crown className="w-4 h-4 ml-1" />
+                    {content.cta}
+                  </Link>
+                </Button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Link href="/subscription">
-                <Button size="sm" variant="outline" className="border-amber-500/30 hover:bg-amber-500/10">
-                  <CreditCard className="w-3.5 h-3.5 ml-1" />
-                  اشترك الآن
-                </Button>
-              </Link>
+
+            {dismissible && (
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                className="h-8 w-8 shrink-0"
                 onClick={() => setDismissed(true)}
               >
                 <X className="w-4 h-4" />
               </Button>
-            </div>
+            )}
           </div>
         </div>
-      </div>
+      </Card>
     )
   }
 
-  // Expired banner - red theme
-  if (!status.isActive || (status.isInTrial && status.remainingTrialDays <= 0)) {
-    return (
-      <div className="bg-gradient-to-r from-red-500/10 via-red-500/5 to-transparent border-b border-red-500/20">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-red-500/20">
-                <AlertCircle className="w-4 h-4 text-red-400" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-red-400">
-                  انتهت صلاحية الاشتراك
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  اشترك الآن للوصول إلى جميع المميزات
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link href="/subscription">
-                <Button size="sm" className="bg-red-500 hover:bg-red-600">
-                  <CreditCard className="w-3.5 h-3.5 ml-1" />
-                  تجديد الاشتراك
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return null
-}
-
-// Compact version for showing in other places
-export function SubscriptionStatusBadge({ status }: { status: SubscriptionStatus | null }) {
-  if (!status) return null
-
-  if (status.isInTrial && status.remainingTrialDays > 0) {
-    return (
-      <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs">
-        <Clock className="w-3 h-3" />
-        <span>تجريبي: {status.remainingTrialDays} يوم</span>
-      </div>
-    )
-  }
-
-  if (status.isActive) {
-    return (
-      <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs">
-        <CreditCard className="w-3 h-3" />
-        <span>مشترك</span>
-      </div>
-    )
-  }
-
+  // Banner variant
   return (
-    <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-500/10 text-red-400 text-xs">
-      <AlertCircle className="w-3 h-3" />
-      <span>غير مشترك</span>
+    <div className={cn(
+      'relative overflow-hidden border-b',
+      styles.bg,
+      styles.border,
+      className
+    )}>
+      <div className="container mx-auto px-4 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={cn('shrink-0', styles.iconColor)}>
+              {content.icon}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn('font-medium text-sm', styles.titleColor)}>
+                  {content.title}
+                </span>
+                <span className="text-sm text-muted-foreground hidden sm:inline">
+                  {content.description}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {dismissible && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => setDismissed(true)}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+            <Button asChild size="sm" variant={styles.buttonVariant}>
+              <Link href={content.ctaLink}>
+                {content.cta}
+                <ArrowRight className="w-4 h-4 mr-1" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

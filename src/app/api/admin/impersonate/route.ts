@@ -1,13 +1,29 @@
 /**
  * Admin Impersonation API
  * 
- * Allows admins to log in as another user for support purposes
+ * Allows admins to log in as another user for support purposes.
+ * SECURITY: Rate limited, short session duration, fully audited.
  */
 
 import { NextResponse } from 'next/server'
 import { getCurrentUser, generateAccessToken, generateRefreshToken } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { cookies } from 'next/headers'
+import { rateLimit } from '@/lib/rate-limit'
+
+// Rate limiter: 5 impersonations per hour per admin
+const impersonationRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  maxRequests: 5,
+  keyGenerator: (request) => {
+    // Use admin user ID for rate limiting (passed via header after auth check)
+    const adminId = request.headers.get('x-admin-id') || 'unknown'
+    return `impersonate:${adminId}`
+  }
+})
+
+// Impersonation session duration: 1 hour (reduced from 7 days for security)
+const IMPERSONATION_SESSION_DURATION_MS = 60 * 60 * 1000 // 1 hour
 
 export async function POST(request: Request) {
   try {
@@ -17,6 +33,24 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: 'Forbidden' },
         { status: 403 }
+      )
+    }
+
+    // Add admin ID to request headers for rate limiting
+    const modifiedRequest = new Request(request.url, {
+      headers: new Headers(request.headers)
+    })
+    modifiedRequest.headers.set('x-admin-id', user.id)
+
+    // Check rate limit
+    const rateLimitResult = impersonationRateLimit.check(modifiedRequest as unknown as Parameters<typeof impersonationRateLimit.check>[0])
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'تم تجاوز عدد المحاولات المسموح بها. حاول مرة أخرى بعد ساعة.' 
+        },
+        { status: 429 }
       )
     }
 
@@ -49,12 +83,7 @@ export async function POST(request: Request) {
       )
     }
 
-    // Delete existing sessions for target user
-    await prisma.session.deleteMany({
-      where: { userId: targetUser.id }
-    })
-
-    // Create new session
+    // Create new session (don't delete existing sessions - less disruptive)
     const refreshToken = await generateRefreshToken()
     const deviceFingerprint = `impersonate-${user.id}-${Date.now()}`
 
@@ -64,7 +93,7 @@ export async function POST(request: Request) {
         refreshToken,
         deviceFingerprint,
         userAgent: `Impersonated by admin: ${user.email}`,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+        expiresAt: new Date(Date.now() + IMPERSONATION_SESSION_DURATION_MS)
       }
     })
 
@@ -79,47 +108,48 @@ export async function POST(request: Request) {
 
     // Set cookies
     const cookieStore = await cookies()
+    const secure = process.env.NODE_ENV === 'production'
     
     cookieStore.set('accessToken', accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure,
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 // 24 hours
+      maxAge: 60 * 60 // 1 hour (matches session)
     })
 
     cookieStore.set('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure,
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7 // 7 days
+      maxAge: 60 * 60 // 1 hour
     })
 
     // Set impersonation flag
     cookieStore.set('isImpersonating', 'true', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure,
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 // 24 hours
+      maxAge: 60 * 60 // 1 hour
     })
 
     cookieStore.set('impersonatorId', user.id, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure,
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 // 24 hours
+      maxAge: 60 * 60 // 1 hour
     })
 
     cookieStore.set('impersonatorEmail', user.email, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure,
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 // 24 hours
+      maxAge: 60 * 60 // 1 hour
     })
 
     // Set subscription cookies for target user
     cookieStore.set('subscriptionEnabled', 'true', {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure,
       sameSite: 'lax'
     })
 
@@ -141,21 +171,26 @@ export async function POST(request: Request) {
       sameSite: 'lax'
     })
 
-    // Create audit log
+    // Create audit log with detailed information
     await prisma.auditLog.create({
       data: {
         userId: user.id,
         action: 'IMPERSONATE_USER',
         entityType: 'User',
         entityId: targetUser.id,
-        newValue: JSON.stringify({ email: targetUser.email })
+        newValue: JSON.stringify({ 
+          email: targetUser.email,
+          impersonatorEmail: user.email,
+          sessionDuration: '1 hour'
+        })
       }
     })
 
     return NextResponse.json({
       success: true,
       message: `Now impersonating ${targetUser.email}`,
-      redirectUrl: '/dashboard'
+      redirectUrl: '/dashboard',
+      sessionDuration: '1 hour'
     })
   } catch (error) {
     console.error('Impersonation error:', error)

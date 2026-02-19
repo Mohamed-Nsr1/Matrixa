@@ -85,6 +85,7 @@ src/
 │   │
 │   ├── dashboard/          # Student dashboard
 │   ├── admin/              # Admin panel
+│   ├── access-denied/      # Access denied page
 │   ├── subjects/           # Subjects hub
 │   ├── planner/            # Weekly planner
 │   ├── focus/              # Focus mode
@@ -222,6 +223,7 @@ src/app/api/
 │   │   └── lessons/
 │   ├── invites/
 │   ├── subscriptions/
+│   ├── email/                # Email tool API
 │   ├── plans/
 │   ├── settings/
 │   └── stats/
@@ -386,9 +388,43 @@ export async function POST(request: NextRequest) {
                                                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  Has subscription access?                                       │
-│  ├─ No ────────────────────────────────────────→ Redirect sub   │
-│  └─ Yes ───────────────────────────────────────→ Allow access   │
+│  ├─ Access denied (isAccessDenied=true) ────→ Redirect denied   │
+│  ├─ Read only (isReadOnly=true) ────────────→ Allow (limited)   │
+│  └─ Yes ───────────────────────────────────→ Allow access       │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+### Subscription Expiration Flow
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    SUBSCRIPTION LIFECYCLE                         │
+└──────────────────────────────────────────────────────────────────┘
+
+Active Subscription
+       │
+       ▼
+Expires ─────────────────────────────────────────────┐
+       │                                              │
+       ▼                                              │
+Grace Period (7 days default)                        │
+       │                                              │
+       ▼                                              │
+Read-Only Mode                                       │
+  - Feature limits applied                           │
+  - Warning banners shown                            │
+  - No write operations                              │
+       │                                              │
+       ▼                                              │
+Sign-in Restriction (if enabled)                     │
+  - Redirect to /access-denied                       │
+  - Show payment options                             │
+  - Data preserved                                   │
+                                                      │
+Renewal ─────────────────────────────────────────────┘
+       │
+       ▼
+Active Subscription
 ```
 
 ---
@@ -907,6 +943,25 @@ When maintenance mode is enabled:
 - Admins can still access all pages
 - Set via `maintenanceMode` in SystemSettings
 
+### Access Denied Page
+
+When sign-in restriction is enabled and user is denied:
+- User is redirected to `/access-denied`
+- Shows subscription plans for renewal
+- Preserves user data for when they renew
+- Provides payment flow integration
+
+### Read-Only Mode
+
+When subscription expires (after grace period):
+- User can view but not edit data
+- Feature limits apply:
+  - Timetable: X days ahead only
+  - Notes: X notes visible
+  - Focus sessions: X sessions in history
+  - Private lessons: X lessons visible
+- Warning banners displayed on all pages
+
 ---
 
 ## Related Documentation
@@ -917,4 +972,4 @@ When maintenance mode is enabled:
 
 ---
 
-*Last updated: 2025-01-18*
+*Last updated: 2025-01-19*

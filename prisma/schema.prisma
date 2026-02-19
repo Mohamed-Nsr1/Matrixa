@@ -67,12 +67,16 @@ model User {
   createdInvites InviteCode[] @relation("AdminCreatedInvites")
   tasks         Task[]
   notes         Note[]
+  noteFolders   NoteFolder[]
+  noteTags      NoteTag[]
+  noteTemplates NoteTemplate[]
   focusSessions FocusSession[]
   streaks       Streak[]
   leaderboardEntry LeaderboardEntry?
   privateLessons PrivateLesson[]
   lessonProgress LessonProgress[]
   userBadges     UserBadge[]
+  manualPaymentRequests ManualPaymentRequest[]
 
   @@index([email])
   @@index([role])
@@ -149,6 +153,7 @@ model SubscriptionPlan {
   updatedAt   DateTime @updatedAt
   
   subscriptions Subscription[]
+  manualPaymentRequests ManualPaymentRequest[]
 }
 
 /// User subscriptions
@@ -163,17 +168,26 @@ model Subscription {
   startDate   DateTime @default(now())
   endDate     DateTime?
   
+  // Grace period - 7 days after expiration for users to renew without losing access
+  gracePeriodEnd DateTime?
+  
   trialStart  DateTime?
   trialEnd    DateTime?
   
   paymobOrderId   String?
   paymobPaymentId String?
   
+  // Notification tracking
+  expiryWarningSentAt DateTime?  // When 7-day warning was sent
+  expiredNotificationSentAt DateTime?  // When expiry notification was sent
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
   @@index([userId])
   @@index([status])
+  @@index([endDate])
+  @@index([gracePeriodEnd])
 }
 
 enum SubscriptionStatus {
@@ -397,6 +411,50 @@ model FocusSession {
 // NOTES SYSTEM
 // ============================================
 
+/// Note Folder - Organize notes into folders
+model NoteFolder {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String
+  color       String?  // Hex color
+  icon        String?  // Emoji or icon name
+  
+  // Parent folder for nested structure
+  parentId    String?
+  parent      NoteFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    NoteFolder[] @relation("FolderHierarchy")
+  
+  order       Int      @default(0)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  notes       Note[]
+  
+  @@index([userId])
+  @@index([parentId])
+}
+
+/// Note Tag - Tags for organizing notes
+model NoteTag {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String
+  color       String?  // Hex color
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  notes       NoteTagRelation[]
+  
+  @@unique([userId, name])
+  @@index([userId])
+}
+
 /// Note - Database-stored notes linked to subjects or lessons
 model Note {
   id          String   @id @default(cuid())
@@ -408,18 +466,91 @@ model Note {
   lessonId    String?
   lesson      Lesson?  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
   
-  title       String?
-  content     String   // Markdown content
+  // Folder organization
+  folderId    String?
+  folder      NoteFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
   
+  title       String?
+  content     String   // Rich text HTML content
+  
+  // Organization
   color       String?  // For color coding
   isPinned    Boolean  @default(false)
+  isFavorite  Boolean  @default(false)
+  isArchived  Boolean  @default(false)
+  
+  // Statistics
+  wordCount   Int      @default(0)
+  readingTime Int      @default(0)  // In minutes
+  
+  // Timestamps
+  lastViewedAt DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Tags relation
+  tags        NoteTagRelation[]
+  
+  @@index([userId])
+  @@index([subjectId])
+  @@index([lessonId])
+  @@index([folderId])
+  @@index([isPinned])
+  @@index([isFavorite])
+  @@index([isArchived])
+}
+
+/// Many-to-many relation between Notes and Tags
+model NoteTagRelation {
+  id        String   @id @default(cuid())
+  noteId    String
+  tagId     String
+  
+  note      Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  tag       NoteTag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([noteId, tagId])
+  @@index([noteId])
+  @@index([tagId])
+}
+
+/// Note Template - Reusable note templates
+model NoteTemplate {
+  id          String   @id @default(cuid())
+  userId      String?  // Null for system templates
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  name        String
+  nameAr      String?
+  description String?
+  descriptionAr String?
+  
+  content     String   // Template content with placeholders
+  
+  // Template type
+  type        TemplateType @default(GENERAL)
+  
+  isSystem    Boolean  @default(false)  // System templates available to all
+  isActive    Boolean  @default(true)
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
   @@index([userId])
-  @@index([subjectId])
-  @@index([lessonId])
+  @@index([type])
+  @@index([isSystem])
+}
+
+enum TemplateType {
+  GENERAL
+  CORNELL      // Cornell Notes method
+  MINDMAP      // Mind map structure
+  SUMMARY      // Summary template
+  FLASHCARD    // Flashcard format
+  STUDY_GUIDE  // Study guide format
 }
 
 // ============================================
@@ -514,6 +645,26 @@ model SystemSettings {
   updatedAt   DateTime @updatedAt
   
   @@index([key])
+}
+
+// ============================================
+// PASSWORD RESET TOKENS
+// ============================================
+
+/// Password Reset Token - Secure database-stored reset tokens
+model PasswordResetToken {
+  id          String   @id @default(cuid())
+  email       String   // User email
+  token       String   @unique // Secure random token
+  expiresAt   DateTime // Token expiration
+  
+  usedAt      DateTime? // When token was used (for tracking)
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([email])
+  @@index([token])
+  @@index([expiresAt])
 }
 
 // ============================================
@@ -662,4 +813,182 @@ model UserBadge {
   @@unique([userId, badgeId])
   @@index([userId])
   @@index([badgeId])
+}
+
+// ============================================
+// EMAIL SYSTEM
+// ============================================
+
+/// Email Template - Reusable email templates for admin
+model EmailTemplate {
+  id          String   @id @default(cuid())
+
+  name        String   // Internal name
+  subject     String   // Email subject line
+  subjectAr   String?  // Arabic subject
+  
+  // Email content (HTML)
+  body        String   // HTML body with {{placeholders}}
+  bodyAr      String?  // Arabic version
+  
+  // Template metadata
+  type        EmailTemplateType @default(GENERAL)
+  
+  // Variables that can be used in this template (JSON array)
+  variables   String?  // e.g., ["userName", "subscriptionEnd", "gracePeriodEnd"]
+  
+  // Trigger for automated emails
+  trigger     EmailTrigger?  // What event triggers this email
+  isActive    Boolean  @default(true)
+  isSystem    Boolean  @default(false)  // System templates can't be deleted
+  
+  // Timing for automated emails (hours before/after trigger event)
+  triggerOffset Int?   // e.g., -168 = 7 days before, 24 = 1 day after
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  emailLogs   EmailLog[]
+  
+  @@index([type])
+  @@index([trigger])
+  @@index([isActive])
+}
+
+enum EmailTemplateType {
+  GENERAL       // General purpose
+  SUBSCRIPTION  // Subscription related
+  ONBOARDING    // New user onboarding
+  ENGAGEMENT    // Re-engagement
+  NOTIFICATION  // System notifications
+}
+
+enum EmailTrigger {
+  TRIAL_STARTED       // When user starts trial
+  TRIAL_ENDING        // Trial ending soon
+  TRIAL_EXPIRED       // Trial expired
+  SUBSCRIPTION_ACTIVE // Subscription activated
+  SUBSCRIPTION_ENDING // Subscription ending soon
+  SUBSCRIPTION_EXPIRED // Subscription expired
+  GRACE_PERIOD_STARTED // Grace period started
+  GRACE_PERIOD_ENDING // Grace period ending
+  ACCESS_DENIED       // Access completely denied
+  PAYMENT_SUCCESS     // Payment successful
+  PAYMENT_FAILED      // Payment failed
+  WELCOME             // New user welcome
+}
+
+/// Email Log - Track sent emails
+model EmailLog {
+  id          String   @id @default(cuid())
+  
+  templateId  String?
+  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  
+  // Recipient info
+  userId      String?
+  email       String   // Recipient email
+  userName    String?  // Recipient name
+  
+  // Email content (snapshot at send time)
+  subject     String
+  body        String
+  
+  // Status
+  status      EmailStatus @default(PENDING)
+  sentAt      DateTime?
+  error       String?  // Error message if failed
+  
+  // Tracking
+  openedAt    DateTime?
+  clickedAt   DateTime?
+  
+  // Metadata
+  metadata    String?  // JSON for additional data
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([templateId])
+  @@index([userId])
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+  BOUNCED
+}
+
+// ============================================
+// MANUAL PAYMENT SYSTEM
+// ============================================
+
+/// Manual Payment Request - For Egyptian mobile wallets and InstaPay
+model ManualPaymentRequest {
+  id          String   @id @default(cuid())
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  planId      String
+  plan        SubscriptionPlan @relation(fields: [planId], references: [id])
+  
+  // Payment amount
+  amount      Float    // Amount in EGP
+  
+  // Payment method
+  paymentMethod   ManualPaymentMethod
+  
+  // Sender information (what the student filled)
+  senderPhone     String?   // Phone number used for mobile wallet
+  senderInstaPayUsername String?   // InstaPay username if used
+  
+  // Receipt/Screenshot
+  receiptImageUrl String   // URL to uploaded receipt image
+  
+  // Status
+  status      ManualPaymentStatus @default(PENDING)
+  
+  // Admin review
+  reviewedBy  String?   // Admin user ID
+  reviewedAt  DateTime?
+  adminNotes  String?   // Notes from admin (visible to user)
+  
+  // Follow-up messages from admin
+  followUpMessage String?   // If admin needs more info
+  followUpSentAt  DateTime?
+  
+  // User response to follow-up
+  userResponse    String?   // User's response/clarification
+  userRespondedAt DateTime?
+  
+  // Additional receipt (if user re-uploads after follow-up)
+  additionalReceiptUrl String?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+  @@index([paymentMethod])
+  @@index([createdAt])
+}
+
+enum ManualPaymentMethod {
+  VODAFONE_CASH    // فودافون كاش
+  ETISALAT_CASH    // اتصالات كاش
+  ORANGE_CASH      // أورنج كاش
+  INSTAPAY         // انستاباي
+}
+
+enum ManualPaymentStatus {
+  PENDING          // Waiting for admin review
+  APPROVED         // Approved, subscription activated
+  REJECTED         // Rejected by admin
+  NEEDS_INFO       // Admin needs more information
+  INFO_PROVIDED    // User provided additional info
 }

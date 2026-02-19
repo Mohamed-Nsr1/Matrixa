@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import {
   DndContext,
@@ -34,7 +34,9 @@ import {
   Eye,
   EyeOff,
   Sparkles,
-  Zap
+  Zap,
+  AlertTriangle,
+  Lock
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -42,6 +44,8 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
+import { useSubscription, useCanWrite } from '@/contexts/SubscriptionContext'
+import UpgradeModal from '@/components/subscription/UpgradeModal'
 import TaskModal from '@/components/tasks/TaskModal'
 import TaskCard from '@/components/tasks/TaskCard'
 import DroppableDay from '@/components/planner/DroppableDay'
@@ -82,6 +86,8 @@ const DAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday
 
 export default function PlannerPage() {
   const { toast } = useToast()
+  const { isReadOnly, getFeatureLimit, isActive, isInTrial, isInGracePeriod } = useSubscription()
+  const { canWrite, requireWrite } = useCanWrite()
   const [user, setUser] = useState<User | null>(null)
   const [tasks, setTasks] = useState<Task[]>([])
   const [privateLessons, setPrivateLessons] = useState<PrivateLesson[]>([])
@@ -100,6 +106,17 @@ export default function PlannerPage() {
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [selectedDayIndex, setSelectedDayIndex] = useState<number | undefined>(undefined)
   const [organizing, setOrganizing] = useState(false)
+
+  // Get the limit for timetable days for expired users
+  const timetableDaysLimit = getFeatureLimit('timetable')
+  
+  // Calculate max allowed date for expired users
+  const maxAllowedDate = useMemo(() => {
+    if (isActive || isInTrial || isInGracePeriod) return null
+    const maxDate = new Date()
+    maxDate.setDate(maxDate.getDate() + timetableDaysLimit)
+    return maxDate
+  }, [isActive, isInTrial, isInGracePeriod, timetableDaysLimit])
 
   // DnD sensors
   const sensors = useSensors(
@@ -163,6 +180,23 @@ export default function PlannerPage() {
   }
 
   const navigateWeek = (direction: 'prev' | 'next') => {
+    // For expired users, don't allow navigating past the limit
+    if (maxAllowedDate && direction === 'next') {
+      const newDate = new Date(currentWeekStart)
+      newDate.setDate(newDate.getDate() + 7)
+      // Check if the new week would be beyond the limit
+      const endOfNewWeek = new Date(newDate)
+      endOfNewWeek.setDate(endOfNewWeek.getDate() + 6)
+      if (endOfNewWeek > maxAllowedDate) {
+        toast({
+          title: 'وصول محدود',
+          description: `يمكنك مشاهدة ${timetableDaysLimit} أيام فقط بعد انتهاء اشتراكك`,
+          variant: 'destructive'
+        })
+        return
+      }
+    }
+    
     const newDate = new Date(currentWeekStart)
     newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7))
     setCurrentWeekStart(newDate)
@@ -184,6 +218,10 @@ export default function PlannerPage() {
 
   // Open modal for new task
   const handleAddTask = (dayIndex: number) => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
     setEditingTask(null)
     setSelectedDayIndex(dayIndex)
     setModalOpen(true)
@@ -191,6 +229,10 @@ export default function PlannerPage() {
 
   // Open modal for editing
   const handleEditTask = (task: Task) => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
     setEditingTask(task)
     setSelectedDayIndex(undefined)
     setModalOpen(true)
@@ -317,6 +359,10 @@ export default function PlannerPage() {
 
   // Handle smart organize
   const handleSmartOrganize = async () => {
+    if (!canWrite) {
+      requireWrite()
+      return
+    }
     setOrganizing(true)
     try {
       const res = await fetch('/api/planner/smart-organize', {
@@ -400,6 +446,26 @@ export default function PlannerPage() {
       {/* Main Content */}
       <main className="pt-20 px-4">
         <div className="container mx-auto max-w-6xl">
+          {/* Read-Only Warning Banner */}
+          {isReadOnly && (
+            <div className="mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <div className="flex items-center gap-3">
+                <Lock className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium text-amber-400">وضع القراءة فقط</p>
+                  <p className="text-sm text-muted-foreground">
+                    انتهى اشتراكك. يمكنك مشاهدة {timetableDaysLimit} أيام قادمة فقط. جدد اشتراكك للوصول الكامل.
+                  </p>
+                </div>
+                <Link href="/subscription">
+                  <Button size="sm" className="bg-amber-500 hover:bg-amber-600">
+                    تجديد الاشتراك
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Week Navigation */}
           <div className="flex items-center justify-between mb-6">
             <Button variant="outline" size="icon" onClick={() => navigateWeek('prev')}>
@@ -654,6 +720,9 @@ export default function PlannerPage() {
         onTaskCreated={handleTaskCreated}
         onTaskUpdated={handleTaskUpdated}
       />
+
+      {/* Upgrade Modal */}
+      <UpgradeModal />
     </div>
   )
 }

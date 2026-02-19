@@ -1,12 +1,15 @@
 /**
  * Forgot Password API Route
  * 
- * Handles password reset requests
+ * Handles password reset requests with secure database-stored tokens.
+ * SECURITY: Tokens are stored in database with expiration and one-time use.
  */
 
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
+import crypto from 'crypto'
+import bcrypt from 'bcryptjs'
 
 const forgotPasswordSchema = z.object({
   email: z.string().email('البريد الإلكتروني غير صالح')
@@ -17,9 +20,8 @@ const resetPasswordSchema = z.object({
   password: z.string().min(8, 'كلمة المرور يجب أن تكون 8 أحرف على الأقل')
 })
 
-// In production, you would use a proper email service and database storage
-// For now, we'll store reset tokens in memory (will be lost on restart)
-const resetTokens = new Map<string, { email: string; expires: number }>()
+// Token expiration time: 1 hour
+const TOKEN_EXPIRY_MS = 60 * 60 * 1000
 
 export async function POST(request: Request) {
   try {
@@ -38,31 +40,63 @@ export async function POST(request: Request) {
       }
 
       const { token, password } = validation.data
-      const tokenData = resetTokens.get(token)
+      
+      // Find token in database
+      const resetToken = await prisma.passwordResetToken.findUnique({
+        where: { token }
+      })
 
-      if (!tokenData || tokenData.expires < Date.now()) {
+      // Check if token exists and is valid
+      if (!resetToken) {
         return NextResponse.json(
           { success: false, error: 'الرمز غير صالح أو منتهي الصلاحية' },
           { status: 400 }
         )
       }
 
+      // Check if token is expired
+      if (resetToken.expiresAt < new Date()) {
+        // Delete expired token
+        await prisma.passwordResetToken.delete({ where: { id: resetToken.id } })
+        return NextResponse.json(
+          { success: false, error: 'الرمز منتهي الصلاحية' },
+          { status: 400 }
+        )
+      }
+
+      // Check if token was already used
+      if (resetToken.usedAt) {
+        return NextResponse.json(
+          { success: false, error: 'الرمز مستخدم بالفعل' },
+          { status: 400 }
+        )
+      }
+
       // Hash new password
-      const bcrypt = await import('bcryptjs')
       const passwordHash = await bcrypt.hash(password, 12)
 
-      // Update user password
-      await prisma.user.update({
-        where: { email: tokenData.email },
-        data: { passwordHash }
-      })
+      // Update user password and mark token as used in a transaction
+      await prisma.$transaction([
+        prisma.user.update({
+          where: { email: resetToken.email },
+          data: { passwordHash }
+        }),
+        prisma.passwordResetToken.update({
+          where: { id: resetToken.id },
+          data: { usedAt: new Date() }
+        }),
+        // Delete all sessions (force re-login)
+        prisma.session.deleteMany({
+          where: { user: { email: resetToken.email } }
+        })
+      ])
 
-      // Delete used token
-      resetTokens.delete(token)
-
-      // Delete all sessions (force re-login)
-      await prisma.session.deleteMany({
-        where: { user: { email: tokenData.email } }
+      // Clean up expired tokens for this email
+      await prisma.passwordResetToken.deleteMany({
+        where: {
+          email: resetToken.email,
+          expiresAt: { lt: new Date() }
+        }
       })
 
       return NextResponse.json({
@@ -70,7 +104,7 @@ export async function POST(request: Request) {
         message: 'تم تغيير كلمة المرور بنجاح'
       })
     } else {
-      // Forgot password - send reset email
+      // Forgot password - generate reset token
       const validation = forgotPasswordSchema.safeParse(body)
       
       if (!validation.success) {
@@ -95,32 +129,32 @@ export async function POST(request: Request) {
         })
       }
 
-      // Generate reset token
-      const crypto = await import('crypto')
+      // Generate secure reset token
       const token = crypto.randomBytes(32).toString('hex')
+      const expiresAt = new Date(Date.now() + TOKEN_EXPIRY_MS)
       
-      // Store token (expires in 1 hour)
-      resetTokens.set(token, {
-        email,
-        expires: Date.now() + 60 * 60 * 1000
+      // Delete any existing tokens for this email (one active token per email)
+      await prisma.passwordResetToken.deleteMany({
+        where: { email }
+      })
+      
+      // Store token in database
+      await prisma.passwordResetToken.create({
+        data: {
+          email,
+          token,
+          expiresAt
+        }
       })
 
       // In production, send email with reset link
-      // For development, return the token directly
-      const isDevelopment = process.env.NODE_ENV !== 'production'
-      
-      if (isDevelopment) {
-        // Return token for testing purposes
-        return NextResponse.json({
-          success: true,
-          message: 'تم إنشاء رمز إعادة التعيين',
-          // Only in development - remove in production!
-          devToken: token,
-          devResetUrl: `/auth/forgot-password?token=${token}&email=${encodeURIComponent(email)}`
-        })
+      // For now, log the token (ONLY for development testing - remove in production)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[DEV ONLY] Password reset token for ${email}: ${token}`)
+        console.log(`[DEV ONLY] Reset URL: /auth/forgot-password?token=${token}`)
       }
 
-      // In production, you would send an email here
+      // TODO: Send email with reset link
       // await sendPasswordResetEmail(email, token)
 
       return NextResponse.json({
@@ -149,9 +183,11 @@ export async function GET(request: Request) {
     )
   }
 
-  const tokenData = resetTokens.get(token)
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: { token }
+  })
 
-  if (!tokenData || tokenData.expires < Date.now()) {
+  if (!resetToken || resetToken.expiresAt < new Date() || resetToken.usedAt) {
     return NextResponse.json({
       success: false,
       valid: false,
@@ -162,6 +198,6 @@ export async function GET(request: Request) {
   return NextResponse.json({
     success: true,
     valid: true,
-    email: tokenData.email
+    email: resetToken.email
   })
 }
