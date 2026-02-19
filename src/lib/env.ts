@@ -32,7 +32,7 @@ const envSchema = z.object({
   NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   
-  // Redis (optional - for scalable rate limiting)
+  // Redis (optional - for scalable rate limiting in production)
   UPSTASH_REDIS_REST_URL: z.string().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   

@@ -651,76 +651,52 @@ if (authHeader !== `Bearer ${cronSecret}`) {
 ## 5. Rate Limiting (Redis)
 
 ### Current Status
-Rate limiting uses in-memory storage (`Map`). Won't work across multiple instances.
+✅ **IMPLEMENTED** - Rate limiting now uses Upstash Redis for production with automatic fallback to in-memory for development.
 
-### Files to Modify
+### Implementation Details
 
-#### `/src/lib/rate-limit.ts`
-Replace with Redis-based implementation:
+The rate limiting system (`/src/lib/rate-limit.ts`) has been upgraded to support:
 
-```typescript
-import { Redis } from '@upstash/redis'
-import { NextRequest, NextResponse } from 'next/server'
+1. **Redis-backed for production** - When `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are configured
+2. **In-memory fallback for development** - Automatic fallback when Redis is not configured
+3. **Sliding window algorithm** - More accurate rate limiting using Redis sorted sets
 
-// Initialize Redis client
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!
-})
+### Pre-configured Rate Limiters
 
-interface RateLimitConfig {
-  windowMs: number
-  maxRequests: number
-  keyGenerator?: (request: NextRequest) => string
-}
+| Limiter | Window | Max Requests | Use Case |
+|---------|--------|--------------|----------|
+| `loginRateLimit` | 15 min | 10 | Login attempts |
+| `registerRateLimit` | 1 hour | 5 | Registration |
+| `refreshRateLimit` | 1 min | 20 | Token refresh |
+| `apiRateLimit` | 10 sec | 10 | General API |
 
-export function rateLimit(config: RateLimitConfig) {
-  const { windowMs, maxRequests, keyGenerator } = config
-  
-  return {
-    async check(request: NextRequest): Promise<{ success: true } | { success: false; response: NextResponse }> {
-      const key = keyGenerator ? keyGenerator(request) : getClientIP(request)
-      const redisKey = `ratelimit:${key}`
-      
-      // Get current count
-      const current = await redis.incr(redisKey)
-      
-      // Set expiry on first request
-      if (current === 1) {
-        await redis.expire(redisKey, Math.ceil(windowMs / 1000))
-      }
-      
-      if (current > maxRequests) {
-        const ttl = await redis.ttl(redisKey)
-        return {
-          success: false,
-          response: NextResponse.json(
-            { success: false, error: `تم تجاوز عدد المحاولات. حاول بعد ${ttl} ثانية` },
-            { status: 429, headers: { 'Retry-After': ttl.toString() } }
-          )
-        }
-      }
-      
-      return { success: true }
-    }
-  }
-}
-```
-
-### Environment Variables Required
+### Environment Variables
 ```env
-UPSTASH_REDIS_REST_URL=your_upstash_url
-UPSTASH_REDIS_REST_TOKEN=your_upstash_token
+# Optional - if not set, falls back to in-memory (development only)
+UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_token
 ```
 
-### Alternative: Redis Labs
-```typescript
-import { createClient } from 'redis'
+### Setup Upstash Redis (Free Tier)
 
-const redis = createClient({
-  url: process.env.REDIS_URL
-})
-await redis.connect()
+1. Create account at [upstash.com](https://upstash.com)
+2. Create a new Redis database
+3. Copy REST URL and Token
+4. Add to environment variables
+
+### Usage Example
+```typescript
+import { apiRateLimit } from '@/lib/rate-limit'
+
+export async function POST(request: NextRequest) {
+  // Check rate limit
+  const result = await apiRateLimit.check(request)
+  if (!result.success) {
+    return result.response // 429 response
+  }
+  
+  // Continue with request...
+}
 ```
 
 ---
@@ -728,105 +704,60 @@ await redis.connect()
 ## 6. Offline Mode (Service Worker)
 
 ### Current Status
-Service worker exists at `/public/sw.js` but doesn't cache API responses.
+✅ **IMPLEMENTED** - Full PWA caching with offline support.
 
-### Enhanced Service Worker
-```javascript
-// /public/sw.js
-const CACHE_NAME = 'matrixa-v2'
-const STATIC_ASSETS = [
-  '/',
-  '/dashboard',
-  '/offline',
-  '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
-]
+### Implementation Details
 
-// Cache strategies
-const CACHE_STRATEGIES = {
-  networkFirst: ['/api/'],
-  cacheFirst: ['/icons/', '/fonts/'],
-  staleWhileRevalidate: ['/']
-}
+The service worker (`/public/sw.js`) implements multiple caching strategies:
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  )
-})
+#### Caching Strategies
 
-self.addEventListener('fetch', (event) => {
-  const { pathname } = new URL(event.request.url)
-  
-  // Network first for API calls
-  if (pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          // Cache successful responses
-          if (response.ok) {
-            const responseClone = response.clone()
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseClone)
-            })
-          }
-          return response
-        })
-        .catch(() => caches.match(event.request))
-    )
-    return
-  }
-  
-  // Stale while revalidate for pages
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request).then((response) => {
-        if (response.ok) {
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, response.clone())
-          })
-        }
-        return response
-      })
-      return cached || fetchPromise
-    })
-  )
-})
-```
+| Strategy | Use Case | Behavior |
+|----------|----------|----------|
+| Cache First | Static assets (JS, CSS, images) | Return cache, update in background |
+| Network First | API routes | Try network, fallback to cache |
+| Network Only | Auth/Admin/Payment routes | Always fetch fresh |
 
-### IndexedDB for Offline Data
-```typescript
-// /src/lib/offline-db.ts
-import { openDB } from 'idb'
+#### Cached API Routes
+The following API routes are cached for offline access:
+- `/api/subjects` - Subject list
+- `/api/user/settings` - User settings
+- `/api/tasks/today` - Today's tasks
+- `/api/subscription/status` - Subscription info
 
-export const db = await openDB('matrixa-offline', 1, {
-  upgrade(db) {
-    db.createObjectStore('tasks', { keyPath: 'id' })
-    db.createObjectStore('notes', { keyPath: 'id' })
-    db.createObjectStore('progress', { keyPath: 'lessonId' })
-  }
-})
+#### Excluded Routes (Never Cached)
+- `/api/auth/` - Authentication
+- `/api/admin/` - Admin operations
+- `/api/payment/` - Payment processing
+- `/api/upload/` - File uploads
 
-export async function saveOfflineData(store: string, data: any) {
-  await db.put(store, data)
-}
+### Offline Page
+When offline, users see a beautiful Arabic offline page with:
+- Clear message about connectivity
+- Retry button
+- Hint about cached content availability
 
-export async function getOfflineData(store: string) {
-  return db.getAll(store)
-}
+### Offline Page Location
+- `/src/app/offline/page.tsx` - Offline page component
 
-export async function syncOfflineData() {
-  const offlineTasks = await getOfflineData('tasks')
-  for (const task of offlineTasks) {
-    await fetch('/api/tasks', {
-      method: 'POST',
-      body: JSON.stringify(task)
-    })
-  }
-  await db.clear('tasks')
-}
-```
+### Testing Offline Mode
+1. Open DevTools → Application → Service Workers
+2. Check "Offline" checkbox
+3. Navigate around the app
+4. Cached content should load
+5. Non-cached pages show offline page
+
+### PWA Installability
+The app is fully installable as PWA:
+- Manifest configured with Arabic metadata
+- Icons in all required sizes
+- Offline support enabled
+- Install prompt available on supported browsers
+
+### Future Enhancements
+1. **IndexedDB Sync** - Queue mutations offline, sync when online
+2. **Background Sync** - Automatic data sync
+3. **Periodic Sync** - Background data refresh
 
 ---
 

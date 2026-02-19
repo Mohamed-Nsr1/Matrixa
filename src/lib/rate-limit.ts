@@ -1,16 +1,23 @@
 /**
  * Rate Limiting Utility
  * 
- * In-memory rate limiting for API routes.
- * Provides configurable rate limiting with:
- * - Custom window duration
- * - Maximum requests per window
- * - Custom key generation (IP, user, etc.)
+ * Scalable rate limiting using Upstash Redis for production.
+ * Falls back to in-memory for development when Redis is not configured.
+ * 
+ * Features:
+ * - Redis-backed for serverless/edge environments
+ * - Configurable window and limit
+ * - Automatic fallback to in-memory
  * - Arabic error messages
- * - Retry-After header
+ * - Retry-After headers
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+
+// Check if Redis is configured
+const REDIS_CONFIGURED = 
+  process.env.UPSTASH_REDIS_REST_URL && 
+  process.env.UPSTASH_REDIS_REST_TOKEN
 
 interface RateLimitConfig {
   /** Time window in milliseconds */
@@ -19,6 +26,8 @@ interface RateLimitConfig {
   maxRequests: number
   /** Optional custom key generator (defaults to IP-based) */
   keyGenerator?: (request: NextRequest) => string
+  /** Prefix for Redis keys */
+  prefix?: string
 }
 
 interface RateLimitEntry {
@@ -26,46 +35,130 @@ interface RateLimitEntry {
   resetTime: number
 }
 
-// In-memory store for rate limiting
-// Key: identifier (IP or user ID), Value: RateLimitEntry
-const rateLimitStore = new Map<string, RateLimitEntry>()
+// ============================================
+// REDIS-BASED RATE LIMITER (Production)
+// ============================================
 
-// Cleanup interval to prevent memory leaks (run every 10 minutes)
+async function checkRedis(
+  key: string,
+  windowMs: number,
+  maxRequests: number,
+  prefix: string
+): Promise<{ success: boolean; remaining: number; resetTime: number }> {
+  // Dynamic import to avoid errors when not configured
+  const { Redis } = await import('@upstash/redis')
+  
+  const redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  })
+  
+  const fullKey = `${prefix}:${key}`
+  const now = Date.now()
+  const windowStart = now - windowMs
+  
+  // Use a sliding window approach with sorted sets
+  // Remove old entries
+  await redis.zremrangebyscore(fullKey, 0, windowStart)
+  
+  // Count current entries
+  const count = await redis.zcard(fullKey)
+  
+  if (count >= maxRequests) {
+    // Get the oldest entry's time to calculate reset time
+    const oldest = await redis.zrange(fullKey, 0, 0, { withScores: true })
+    const resetTime = oldest.length > 0 ? (oldest[1] as number) + windowMs : now + windowMs
+    
+    return {
+      success: false,
+      remaining: 0,
+      resetTime
+    }
+  }
+  
+  // Add current request
+  await redis.zadd(fullKey, { score: now, member: `${now}-${Math.random()}` })
+  
+  // Set expiry on the key
+  await redis.expire(fullKey, Math.ceil(windowMs / 1000))
+  
+  return {
+    success: true,
+    remaining: maxRequests - count - 1,
+    resetTime: now + windowMs
+  }
+}
+
+// ============================================
+// IN-MEMORY RATE LIMITER (Development Fallback)
+// ============================================
+
+const memoryStore = new Map<string, RateLimitEntry>()
 const CLEANUP_INTERVAL = 10 * 60 * 1000
 let cleanupTimer: NodeJS.Timeout | null = null
 
-/**
- * Starts the cleanup interval to remove expired entries
- */
 function startCleanup() {
   if (cleanupTimer) return
   
   cleanupTimer = setInterval(() => {
     const now = Date.now()
-    for (const [key, entry] of rateLimitStore.entries()) {
+    for (const [key, entry] of memoryStore.entries()) {
       if (entry.resetTime < now) {
-        rateLimitStore.delete(key)
+        memoryStore.delete(key)
       }
     }
   }, CLEANUP_INTERVAL)
   
-  // Don't keep the process alive just for this timer
   if (cleanupTimer.unref) {
     cleanupTimer.unref()
   }
 }
 
-// Start cleanup on module load
 startCleanup()
 
-/**
- * Gets the client IP address from the request
- */
+function checkMemory(
+  key: string,
+  windowMs: number,
+  maxRequests: number
+): { success: boolean; remaining: number; resetTime: number } {
+  const now = Date.now()
+  const entry = memoryStore.get(key)
+  
+  if (!entry || entry.resetTime < now) {
+    memoryStore.set(key, {
+      count: 1,
+      resetTime: now + windowMs
+    })
+    return {
+      success: true,
+      remaining: maxRequests - 1,
+      resetTime: now + windowMs
+    }
+  }
+  
+  if (entry.count >= maxRequests) {
+    return {
+      success: false,
+      remaining: 0,
+      resetTime: entry.resetTime
+    }
+  }
+  
+  entry.count++
+  return {
+    success: true,
+    remaining: maxRequests - entry.count,
+    resetTime: entry.resetTime
+  }
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
 function getClientIP(request: NextRequest): string {
-  // Try various headers that might contain the real IP
   const forwarded = request.headers.get('x-forwarded-for')
   if (forwarded) {
-    // x-forwarded-for may contain multiple IPs, take the first one
     return forwarded.split(',')[0].trim()
   }
   
@@ -74,13 +167,9 @@ function getClientIP(request: NextRequest): string {
     return realIP.trim()
   }
   
-  // Fallback to a default
   return 'unknown'
 }
 
-/**
- * Formats the remaining time in Arabic
- */
 function formatRemainingTime(ms: number): string {
   const seconds = Math.ceil(ms / 1000)
   
@@ -97,52 +186,31 @@ function formatRemainingTime(ms: number): string {
   return `${hours} ساعة`
 }
 
-/**
- * Rate limit middleware for API routes
- * 
- * @param config - Rate limit configuration
- * @returns Object with check function and remaining requests info
- * 
- * @example
- * const limiter = rateLimit({
- *   windowMs: 15 * 60 * 1000, // 15 minutes
- *   maxRequests: 10
- * })
- * 
- * const result = await limiter.check(request)
- * if (!result.success) {
- *   return result.response // 429 response
- * }
- */
+// ============================================
+// MAIN EXPORT
+// ============================================
+
 export function rateLimit(config: RateLimitConfig) {
-  const { windowMs, maxRequests, keyGenerator } = config
+  const { windowMs, maxRequests, keyGenerator, prefix = 'ratelimit' } = config
   
   return {
     /**
      * Check if the request should be rate limited
-     * @param request - The Next.js request object
-     * @returns Object with success boolean and optional 429 response
      */
-    check(request: NextRequest): { success: true } | { success: false; response: NextResponse } {
-      // Generate the key for this request
+    async check(request: NextRequest): Promise<{ success: true } | { success: false; response: NextResponse }> {
       const key = keyGenerator ? keyGenerator(request) : getClientIP(request)
       
-      const now = Date.now()
-      const entry = rateLimitStore.get(key)
+      let result: { success: boolean; remaining: number; resetTime: number }
       
-      // If no entry exists or window has expired, create new entry
-      if (!entry || entry.resetTime < now) {
-        rateLimitStore.set(key, {
-          count: 1,
-          resetTime: now + windowMs
-        })
-        return { success: true }
+      if (REDIS_CONFIGURED) {
+        result = await checkRedis(key, windowMs, maxRequests, prefix)
+      } else {
+        result = checkMemory(key, windowMs, maxRequests)
       }
       
-      // Check if limit exceeded
-      if (entry.count >= maxRequests) {
-        const retryAfter = Math.ceil((entry.resetTime - now) / 1000)
-        const remainingTime = formatRemainingTime(entry.resetTime - now)
+      if (!result.success) {
+        const retryAfter = Math.ceil((result.resetTime - Date.now()) / 1000)
+        const remainingTime = formatRemainingTime(result.resetTime - Date.now())
         
         return {
           success: false,
@@ -157,26 +225,22 @@ export function rateLimit(config: RateLimitConfig) {
                 'Retry-After': retryAfter.toString(),
                 'X-RateLimit-Limit': maxRequests.toString(),
                 'X-RateLimit-Remaining': '0',
-                'X-RateLimit-Reset': entry.resetTime.toString()
+                'X-RateLimit-Reset': result.resetTime.toString()
               }
             }
           )
         }
       }
       
-      // Increment count and allow
-      entry.count++
       return { success: true }
     },
     
     /**
-     * Get remaining requests for a key
-     * @param request - The Next.js request object
-     * @returns Number of remaining requests in current window
+     * Get remaining requests for a key (sync, uses memory store only)
      */
     getRemaining(request: NextRequest): number {
       const key = keyGenerator ? keyGenerator(request) : getClientIP(request)
-      const entry = rateLimitStore.get(key)
+      const entry = memoryStore.get(key)
       
       if (!entry || entry.resetTime < Date.now()) {
         return maxRequests
@@ -187,33 +251,35 @@ export function rateLimit(config: RateLimitConfig) {
     
     /**
      * Reset the rate limit for a specific key
-     * @param request - The Next.js request object
      */
     reset(request: NextRequest): void {
       const key = keyGenerator ? keyGenerator(request) : getClientIP(request)
-      rateLimitStore.delete(key)
+      memoryStore.delete(key)
     }
   }
 }
 
-// Pre-configured rate limiters for auth routes
+// ============================================
+// PRE-CONFIGURED RATE LIMITERS
+// ============================================
+
 export const loginRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  maxRequests: 10 // 10 attempts per 15 minutes per IP
+  maxRequests: 10, // 10 attempts per 15 minutes per IP
+  prefix: 'login'
 })
 
 export const registerRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  maxRequests: 5 // 5 attempts per hour per IP
+  maxRequests: 5, // 5 attempts per hour per IP
+  prefix: 'register'
 })
 
 export const refreshRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   maxRequests: 20, // 20 attempts per minute
-  // Key generator for refresh token rate limiting - uses user ID if available
+  prefix: 'refresh',
   keyGenerator: (request: NextRequest) => {
-    // For refresh, we rate limit by IP since user ID isn't available in request
-    // This is fine because the refresh token is in cookies
     const forwarded = request.headers.get('x-forwarded-for')
     if (forwarded) {
       return `refresh:${forwarded.split(',')[0].trim()}`
@@ -224,4 +290,11 @@ export const refreshRateLimit = rateLimit({
     }
     return 'refresh:unknown'
   }
+})
+
+// General API rate limiter - 10 requests per 10 seconds
+export const apiRateLimit = rateLimit({
+  windowMs: 10 * 1000, // 10 seconds
+  maxRequests: 10, // 10 requests per 10 seconds
+  prefix: 'api'
 })
