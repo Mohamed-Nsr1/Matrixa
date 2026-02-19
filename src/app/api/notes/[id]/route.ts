@@ -2,11 +2,13 @@
  * Single Note API Route
  *
  * Handles operations on a single note
+ * Includes HTML sanitization to prevent XSS attacks
  */
 
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { z } from 'zod'
 
 const updateNoteSchema = z.object({
@@ -121,7 +123,8 @@ export async function PATCH(
     }
 
     if (data.content !== undefined) {
-      updateData.content = data.content
+      // Sanitize HTML content to prevent XSS attacks
+      updateData.content = sanitizeHtml(data.content)
     }
 
     if (data.isPinned !== undefined) {

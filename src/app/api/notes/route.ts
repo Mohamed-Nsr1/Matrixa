@@ -2,11 +2,13 @@
  * Notes API Route
  *
  * Handles CRUD operations for notes
+ * Includes HTML sanitization to prevent XSS attacks
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { z } from 'zod'
 
 const createNoteSchema = z.object({
@@ -114,6 +116,9 @@ export async function POST(request: Request) {
 
     const data = validation.data
 
+    // Sanitize HTML content to prevent XSS attacks
+    const sanitizedContent = sanitizeHtml(data.content)
+
     // If lessonId is provided, verify it exists and get its subject
     let subjectIdToUse = data.subjectId
     if (data.lessonId && !data.subjectId) {
@@ -134,7 +139,7 @@ export async function POST(request: Request) {
       data: {
         userId: user.id,
         title: data.title || null,
-        content: data.content,
+        content: sanitizedContent,
         subjectId: subjectIdToUse,
         lessonId: data.lessonId,
         color: data.color || null,
