@@ -1,0 +1,289 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  
+  /* Matrixa Custom Colors */
+  --color-violet: var(--violet);
+  --color-cyan: var(--cyan);
+  --color-emerald: var(--emerald);
+}
+
+/* Dark theme by default for Matrixa */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.12 0.01 270); /* Very dark violet-ish */
+  --foreground: oklch(0.95 0 0);
+  --card: oklch(0.16 0.015 270);
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.14 0.015 270);
+  --popover-foreground: oklch(0.95 0 0);
+  
+  /* Violet-based primary for Matrixa */
+  --primary: oklch(0.65 0.2 280);
+  --primary-foreground: oklch(0.98 0 0);
+  
+  --secondary: oklch(0.22 0.02 270);
+  --secondary-foreground: oklch(0.9 0 0);
+  --muted: oklch(0.22 0.015 270);
+  --muted-foreground: oklch(0.65 0 0);
+  --accent: oklch(0.25 0.025 270);
+  --accent-foreground: oklch(0.95 0 0);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(0.25 0.02 270);
+  --input: oklch(0.2 0.015 270);
+  --ring: oklch(0.65 0.2 280);
+  
+  /* Chart colors - vibrant gradients */
+  --chart-1: oklch(0.65 0.2 280); /* Violet */
+  --chart-2: oklch(0.7 0.15 190); /* Cyan */
+  --chart-3: oklch(0.7 0.18 160); /* Emerald */
+  --chart-4: oklch(0.75 0.15 50); /* Amber */
+  --chart-5: oklch(0.65 0.2 340); /* Pink */
+  
+  /* Sidebar */
+  --sidebar: oklch(0.1 0.01 270);
+  --sidebar-foreground: oklch(0.95 0 0);
+  --sidebar-primary: oklch(0.65 0.2 280);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.2 0.02 270);
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.2 0.015 270);
+  --sidebar-ring: oklch(0.5 0.15 280);
+  
+  /* Matrixa custom */
+  --violet: oklch(0.65 0.2 280);
+  --cyan: oklch(0.7 0.15 190);
+  --emerald: oklch(0.7 0.18 160);
+}
+
+/* Light theme override (seldom used - Matrixa is dark by default) */
+.dark {
+  /* Same as root since we're dark by default */
+}
+
+/* Light mode (if needed) */
+.light {
+  --background: oklch(0.98 0 0);
+  --foreground: oklch(0.12 0.01 270);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.12 0.01 270);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.12 0.01 270);
+  --primary: oklch(0.55 0.22 280);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0 0);
+  --secondary-foreground: oklch(0.12 0.01 270);
+  --muted: oklch(0.95 0.01 270);
+  --muted-foreground: oklch(0.45 0 0);
+  --accent: oklch(0.92 0.02 270);
+  --accent-foreground: oklch(0.12 0.01 270);
+  --destructive: oklch(0.55 0.22 25);
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.92 0 0);
+  --ring: oklch(0.55 0.22 280);
+  --sidebar: oklch(0.98 0 0);
+  --sidebar-foreground: oklch(0.12 0.01 270);
+  --sidebar-primary: oklch(0.55 0.22 280);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.95 0 0);
+  --sidebar-accent-foreground: oklch(0.12 0.01 270);
+  --sidebar-border: oklch(0.9 0 0);
+  --sidebar-ring: oklch(0.55 0.22 280);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* RTL Support */
+[dir="rtl"] {
+  text-align: right;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.4 0.02 270);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.5 0.02 270);
+}
+
+/* Matrixa Gradient Background */
+.gradient-bg {
+  background: radial-gradient(ellipse at top left, oklch(0.25 0.1 280 / 20%), transparent 50%),
+              radial-gradient(ellipse at bottom right, oklch(0.25 0.08 190 / 15%), transparent 50%),
+              oklch(0.12 0.01 270);
+}
+
+/* Subtle Noise Overlay */
+.noise-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px oklch(0.65 0.2 280 / 20%);
+  }
+  50% {
+    box-shadow: 0 0 40px oklch(0.65 0.2 280 / 40%);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Stagger children animation */
+.stagger-children > * {
+  opacity: 0;
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+.stagger-children > *:nth-child(1) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.2s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.3s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.4s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.5s; }
+.stagger-children > *:nth-child(6) { animation-delay: 0.6s; }
+.stagger-children > *:nth-child(7) { animation-delay: 0.7s; }
+.stagger-children > *:nth-child(8) { animation-delay: 0.8s; }
+
+/* Focus Timer Styles */
+.focus-timer {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Card Hover Effects */
+.card-hover {
+  transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px -10px oklch(0.65 0.2 280 / 20%);
+}
+
+/* Gradient Text */
+.gradient-text {
+  background: linear-gradient(135deg, oklch(0.75 0.18 280), oklch(0.75 0.15 190));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Progress Ring */
+.progress-ring {
+  transform: rotate(-90deg);
+}
+
+.progress-ring__circle {
+  transition: stroke-dashoffset 0.5s ease;
+}
+
+/* Subject Colors */
+.subject-arabic { --subject-color: oklch(0.7 0.18 160); }
+.subject-english { --subject-color: oklch(0.65 0.18 230); }
+.subject-math { --subject-color: oklch(0.65 0.2 280); }
+.subject-physics { --subject-color: oklch(0.7 0.15 190); }
+.subject-chemistry { --subject-color: oklch(0.7 0.2 320); }
+.subject-biology { --subject-color: oklch(0.7 0.18 140); }
+.subject-geology { --subject-color: oklch(0.65 0.15 50); }
+.subject-religion { --subject-color: oklch(0.75 0.15 80); }
+.subject-national { --subject-color: oklch(0.55 0.05 270); }
+
+/* Glassmorphism (subtle) */
+.glass {
+  background: oklch(0.18 0.015 270 / 80%);
+  backdrop-filter: blur(12px);
+  border: 1px solid oklch(0.25 0.02 270 / 50%);
+}
+
+/* Task Status Colors */
+.status-pending { --status-color: oklch(0.65 0 0); }
+.status-in-progress { --status-color: oklch(0.7 0.15 50); }
+.status-completed { --status-color: oklch(0.7 0.18 160); }
+.status-skipped { --status-color: oklch(0.5 0 0); }
+
+/* Task Type Colors */
+.type-video { --type-color: oklch(0.7 0.18 160); }
+.type-questions { --type-color: oklch(0.65 0.18 230); }
+.type-revision { --type-color: oklch(0.7 0.2 320); }

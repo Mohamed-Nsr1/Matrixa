@@ -1,0 +1,665 @@
+// This is your Prisma schema file,
+// Matrixa - Production SaaS for Egyptian High School Students
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+/// User model - Core user entity with role-based access
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  role          UserRole  @default(STUDENT)
+  
+  // Profile Information
+  fullName      String?
+  avatarUrl     String?
+  phone         String?  // Phone number for contact
+  
+  // Student-specific fields
+  branchId      String?
+  branch        Branch?   @relation(fields: [branchId], references: [id])
+  specialization String?  // For Scientific: "science" or "math"
+  secondLanguage String?  // "french" or "german"
+  studyLanguage String?   // "arabic" or "english" - affects curriculum content
+  uiLanguage    String    @default("arabic") // UI display language
+  dailyStudyGoal Int?     // Minutes per day
+  
+  // Onboarding State
+  onboardingCompleted Boolean @default(false)
+  onboardingStep      Int     @default(0)
+  
+  // Notification Preferences
+  studyReminders      Boolean @default(true)
+  taskReminders       Boolean @default(true)
+  pushSubscription    String? // JSON string for web push subscription
+  
+  // Ban Status
+  isBanned     Boolean   @default(false)
+  bannedAt     DateTime?
+  bannedReason String?
+
+  // Leaderboard Status
+  hideFromLeaderboard Boolean @default(false) // Admin can hide from leaderboard
+  
+  // Device & Session
+  deviceFingerprint String?
+  lastActiveAt     DateTime @default(now())
+  
+  // Timestamps
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  // Relations
+  sessions       Session[]
+  subscriptions  Subscription[]
+  inviteCodeUsed InviteCode?  @relation("InviteCodeUsage")
+  createdInvites InviteCode[] @relation("AdminCreatedInvites")
+  tasks         Task[]
+  notes         Note[]
+  focusSessions FocusSession[]
+  streaks       Streak[]
+  leaderboardEntry LeaderboardEntry?
+  privateLessons PrivateLesson[]
+  lessonProgress LessonProgress[]
+  userBadges     UserBadge[]
+
+  @@index([email])
+  @@index([role])
+}
+
+/// User roles for RBAC
+enum UserRole {
+  STUDENT
+  ADMIN
+}
+
+/// Session model - For JWT refresh tokens and device tracking
+model Session {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  refreshToken   String   @unique
+  deviceFingerprint String
+  userAgent      String?
+  ipAddress      String?
+  
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  
+  @@index([userId])
+  @@index([refreshToken])
+}
+
+// ============================================
+// INVITE CODE SYSTEM
+// ============================================
+
+/// Invite codes for registration control
+model InviteCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  createdById String?
+  createdBy   User?     @relation("AdminCreatedInvites", fields: [createdById], references: [id])
+  
+  maxUses     Int       @default(1)
+  currentUses Int       @default(0)
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  
+  usedBy      User?     @relation("InviteCodeUsage", fields: [usedById], references: [id])
+  usedById    String?   @unique
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@index([code])
+}
+
+// ============================================
+// SUBSCRIPTION SYSTEM
+// ============================================
+
+/// Subscription plans
+model SubscriptionPlan {
+  id          String   @id @default(cuid())
+  name        String
+  nameAr      String
+  description String?
+  descriptionAr String?
+  
+  price       Float    // Price in EGP
+  durationDays Int     // Subscription duration in days
+  
+  features    String?  // JSON string of features
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  subscriptions Subscription[]
+}
+
+/// User subscriptions
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId      String?
+  plan        SubscriptionPlan? @relation(fields: [planId], references: [id])
+  
+  status      SubscriptionStatus @default(TRIAL)
+  startDate   DateTime @default(now())
+  endDate     DateTime?
+  
+  trialStart  DateTime?
+  trialEnd    DateTime?
+  
+  paymobOrderId   String?
+  paymobPaymentId String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([status])
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PAUSED
+}
+
+// ============================================
+// CURRICULUM STRUCTURE
+// ============================================
+
+/// Branch - Scientific or Literary
+model Branch {
+  id          String   @id @default(cuid())
+  nameAr      String
+  nameEn      String
+  code        String   @unique  // "scientific" or "literary"
+  description String?
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  subjects    Subject[]
+  users       User[]
+  
+  @@index([code])
+}
+
+/// Subject - e.g., Arabic, Math, Physics
+model Subject {
+  id          String   @id @default(cuid())
+  branchId    String
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  
+  nameAr      String
+  nameEn      String
+  code        String?  // Optional short code
+  description String?
+  color       String?  // Hex color for UI
+  icon        String?  // Icon name
+  order       Int      @default(0)
+  xpPerLesson Int      @default(10)
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  units       Unit[]
+  notes       Note[]
+  
+  @@index([branchId])
+}
+
+/// Unit - Group of lessons within a subject
+model Unit {
+  id          String   @id @default(cuid())
+  subjectId   String
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  
+  nameAr      String
+  nameEn      String
+  description String?
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  lessons     Lesson[]
+  
+  @@index([subjectId])
+}
+
+/// Lesson - Individual lesson within a unit
+model Lesson {
+  id          String   @id @default(cuid())
+  unitId      String
+  unit        Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  
+  nameAr      String
+  nameEn      String
+  description String?
+  order       Int      @default(0)
+  duration    Int?     // Estimated duration in minutes
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  notes       Note[]
+  tasks       Task[]
+  lessonProgress LessonProgress[]
+  
+  @@index([unitId])
+}
+
+// ============================================
+// STUDY PLANNING & TASKS
+// ============================================
+
+/// Task - Scheduled study task
+model Task {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId    String?
+  lesson      Lesson?  @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  
+  title       String
+  description String?
+  
+  taskType    TaskType @default(VIDEO)
+  status      TaskStatus @default(PENDING)
+  
+  scheduledDate DateTime? // The date this task is scheduled for
+  dayOfWeek    Int?       // 0-6 (Sunday-Saturday) for weekly planner
+  scheduledTime String?   // Time slot (e.g., "14:00")
+  
+  duration    Int       // Duration in minutes
+  remainingDuration Int? // For paused sessions
+  
+  order       Int       @default(0) // Order within the day
+  
+  completedAt DateTime?
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([scheduledDate])
+  @@index([status])
+}
+
+enum TaskType {
+  VIDEO
+  QUESTIONS
+  REVISION
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+/// Lesson Progress - Track student progress on each lesson
+model LessonProgress {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lessonId    String
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  
+  doneVideo     Boolean @default(false)
+  doneQuestions Boolean @default(false)
+  doneRevision  Boolean @default(false)
+  
+  confidenceLevel ConfidenceLevel @default(MEDIUM)
+  
+  lastStudiedAt DateTime?
+  timesStudied Int      @default(0)
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@index([lessonId])
+}
+
+enum ConfidenceLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// ============================================
+// FOCUS SESSIONS
+// ============================================
+
+/// Focus Session - Pomodoro-style study sessions
+model FocusSession {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId      String?
+  
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
+  duration    Int      // Planned duration in seconds
+  actualDuration Int?  // Actual duration in seconds
+  wasCompleted Boolean @default(false)
+  
+  brainDump   String?  // Notes during session
+  notes       String?  // Additional notes after session
+  
+  // Session Progress Markers
+  videosWatched     Int @default(0)
+  questionsSolved   Int @default(0)
+  revisionsCompleted Int @default(0)
+  
+  // Optional Subject/Lesson linking
+  subjectId   String?
+  lessonId    String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([startedAt])
+  @@index([subjectId])
+  @@index([lessonId])
+}
+
+// ============================================
+// NOTES SYSTEM
+// ============================================
+
+/// Note - Database-stored notes linked to subjects or lessons
+model Note {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  subjectId   String?
+  subject     Subject? @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  lessonId    String?
+  lesson      Lesson?  @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  
+  title       String?
+  content     String   // Markdown content
+  
+  color       String?  // For color coding
+  isPinned    Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([subjectId])
+  @@index([lessonId])
+}
+
+// ============================================
+// PRIVATE LESSONS / CENTERS
+// ============================================
+
+/// Private Lesson - External lessons at centers or with teachers
+model PrivateLesson {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subjectId   String?  // Optional link to subject
+  
+  teacherName String
+  subjectName String   // Subject name (can be different from curriculum subjects)
+  centerName  String?  // Center/school name
+  
+  // Schedule
+  daysOfWeek  String   // JSON array: [0,1,2] for Sunday, Monday, Tuesday
+  time        String   // e.g., "14:00"
+  duration    Int      // Duration in minutes
+  location    String?  // Physical location/room
+  
+  notes       String?
+  color       String?
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+}
+
+// ============================================
+// ENGAGEMENT SYSTEMS
+// ============================================
+
+/// Streak - Daily activity tracking
+model Streak {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  currentStreak Int    @default(0)
+  longestStreak  Int   @default(0)
+  lastActivityDate DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([userId])
+  @@index([currentStreak])
+}
+
+/// Leaderboard Entry - For competition features
+model LeaderboardEntry {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  score       Int      @default(0)
+  rank        Int?
+  
+  // Score components
+  studyMinutes    Int @default(0)
+  tasksCompleted  Int @default(0)
+  focusSessions   Int @default(0)
+  
+  isOptedIn   Boolean  @default(true)
+  isHidden    Boolean  @default(false) // Admin can hide from leaderboard
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([score])
+  @@index([rank])
+}
+
+// ============================================
+// SYSTEM SETTINGS
+// ============================================
+
+/// System Settings - Feature flags and configuration
+model SystemSettings {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String   // JSON value
+  
+  description String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([key])
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+/// Audit Log - Track important actions for debugging and security
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String
+  entityType  String?
+  entityId    String?
+  
+  oldValue    String?  // JSON
+  newValue    String?  // JSON
+  
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ============================================
+// ANNOUNCEMENTS
+// ============================================
+
+/// Announcement - System-wide announcements for students
+model Announcement {
+  id          String   @id @default(cuid())
+  
+  title       String
+  titleEn     String?  // English version
+  content     String   // Arabic content
+  contentEn   String?  // English version
+  
+  type        AnnouncementType @default(INFO)
+  priority    Int      @default(0)  // Higher = more important
+  
+  // Targeting
+  targetAll   Boolean  @default(true)
+  targetBranches String? // JSON array of branch IDs
+  
+  // Display options
+  showBanner  Boolean  @default(true)  // Show as banner at top
+  isDismissible Boolean @default(true) // Allow users to dismiss
+  
+  // Scheduling
+  startsAt    DateTime @default(now())
+  endsAt      DateTime?
+  
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([isActive])
+  @@index([priority])
+  @@index([startsAt])
+}
+
+enum AnnouncementType {
+  INFO
+  WARNING
+  SUCCESS
+  MAINTENANCE
+  FEATURE
+}
+
+// ============================================
+// GAMIFICATION BADGES
+// ============================================
+
+/// Badge - Achievement badges for gamification
+model Badge {
+  id          String   @id @default(cuid())
+
+  nameAr      String   // Arabic name
+  nameEn      String   // English name
+  descriptionAr String?
+  descriptionEn String?
+
+  icon        String   // Emoji or icon name
+  color       String   @default("#8b5cf6") // Hex color
+
+  // Badge criteria
+  type        BadgeType @default(STREAK)
+  requirement Int      // e.g., 7 day streak, 100 tasks completed
+
+  // Rarity
+  rarity      BadgeRarity @default(COMMON)
+
+  // XP reward for earning
+  xpReward    Int      @default(0)
+
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userBadges  UserBadge[]
+
+  @@index([type])
+  @@index([rarity])
+}
+
+enum BadgeType {
+  STREAK        // Streak achievements
+  TASKS         // Tasks completed
+  FOCUS         // Focus sessions
+  SUBJECTS      // Subject progress
+  SPECIAL       // Special achievements
+}
+
+enum BadgeRarity {
+  COMMON
+  UNCOMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+/// UserBadge - User's earned badges
+model UserBadge {
+  id          String   @id @default(cuid())
+
+  userId      String
+  badgeId     String
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge       Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  earnedAt    DateTime @default(now())
+
+  // Progress tracking (for badges not yet earned)
+  progress    Int      @default(0)  // Current progress
+  isCompleted Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+  @@index([badgeId])
+}
