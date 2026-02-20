@@ -32,8 +32,8 @@ const loginSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    // Check rate limit first
-    const rateLimitResult = loginRateLimit.check(request)
+    // Check rate limit first (async for Redis support)
+    const rateLimitResult = await loginRateLimit.check(request)
     if (!rateLimitResult.success) {
       return rateLimitResult.response
     }

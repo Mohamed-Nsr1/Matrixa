@@ -14,8 +14,8 @@ import { refreshRateLimit } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
-    // Check rate limit first
-    const rateLimitResult = refreshRateLimit.check(request)
+    // Check rate limit first (async for Redis support)
+    const rateLimitResult = await refreshRateLimit.check(request)
     if (!rateLimitResult.success) {
       return rateLimitResult.response
     }
