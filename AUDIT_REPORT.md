@@ -1,7 +1,7 @@
 # Matrixa — Full Audit Report
 
-> **Date:** 2026-02-20  
-> **Scope:** Errors, missing features, incomplete implementations, mocked code, and inconsistencies across the entire codebase  
+> **Date:** 2026-02-20 (updated with worklog analysis)  
+> **Scope:** Errors, missing features, incomplete implementations, mocked code, and inconsistencies across the entire codebase — cross-referenced with `worklog.md`  
 > **Status Key:** 🔴 Error/Build Failure · 🟠 Inconsistency · 🟡 Incomplete/Partial · 🔵 Missing Feature · ⚠️ Security Issue
 
 ---
@@ -20,8 +20,9 @@
 10. [API Documentation vs. Implementation Gaps](#section-10-api-documentation-vs-implementation-gaps)
 11. [Developer Experience Gaps](#section-11-developer-experience-gaps)
 12. [Landing Page — Hardcoded and Not Admin-Editable](#section-12-landing-page--hardcoded-and-not-admin-editable)
-13. [FEATURES_CHECKLIST.md Inaccuracies](#section-13-features_checklistmd-inaccuracies)
-14. [Quick Reference Table](#section-14-quick-reference-table)
+13. [Worklog Gap Analysis — What Was Claimed vs. What Is Incomplete](#section-13-worklog-gap-analysis--what-was-claimed-vs-what-is-incomplete)
+14. [FEATURES_CHECKLIST.md Inaccuracies](#section-14-features_checklistmd-inaccuracies)
+15. [Quick Reference Table](#section-15-quick-reference-table)
 
 ---
 
@@ -585,7 +586,223 @@ The admin panel has no page, no API, and no database model for any landing page 
 
 ---
 
-## Section 13 — `FEATURES_CHECKLIST.md` Inaccuracies
+## Section 13 — Worklog Gap Analysis — What Was Claimed vs. What Is Incomplete
+
+This section cross-references each worklog task entry with the actual codebase to identify discrepancies — things the worklog says were implemented but are either absent, broken, or only partially done.
+
+---
+
+### 13.1 🔵 Note Favorite & Archive Toggles Broken — `isFavorite`/`isArchived` Missing from PATCH Schema
+
+**Worklog reference:** Task ID 19 (Notes System Major Upgrade) — "Toggle Favorite/Pin actions", "Archive support"  
+**Files:** `src/app/api/notes/[id]/route.ts`, `src/app/notes/page.tsx`
+
+The `PATCH /api/notes/:id` endpoint uses Zod validation with this schema:
+
+```typescript
+const updateNoteSchema = z.object({
+  title, content, subjectId, lessonId, color, isPinned   // ← isFavorite and isArchived are MISSING
+})
+```
+
+The notes page (`handleToggleFavorite`) sends `PATCH` with `{ isFavorite: !note.isFavorite }`, but since `isFavorite` is not in the Zod schema, it is silently stripped and the database is never updated. The UI optimistically updates the state, creating the appearance of success — but on page refresh, the note returns to its original state.
+
+The same applies to `isArchived`: there is no archive toggle in `NoteCard`'s dropdown menu at all. The `Archive` icon is imported from lucide-react but never rendered. Users can view archived notes (via `showArchived` toggle in the notes page), but there is no way to archive a note from the UI in the first place.
+
+**Summary of broken note UI features:**
+- `isFavorite` toggle: appears to work, silently does nothing in DB
+- `isArchived` toggle: no UI control exists at all
+- `isPinned` toggle: ✅ works correctly (is in the PATCH schema)
+
+---
+
+### 13.2 🔵 Subscription Write Gate Exists Only Client-Side — No API-Level Enforcement
+
+**Worklog reference:** Task ID 19 (Subscription Expiration) — "`requireWriteAccess()` helper for API routes", "API route protection for writes"  
+**Files:** `src/lib/subscription-check.ts`, all write API routes
+
+The `requireWriteAccess()` function and `withSubscriptionCheck()` wrapper were created and documented in the worklog. However, `requireWriteAccess` is **never imported or called** in any API route. Searching the entire `src/app/api/` directory for any import of `subscription-check` returns zero results.
+
+This means:
+- An expired student can directly call `POST /api/tasks` (create task) with a valid JWT and it will succeed
+- An expired student can directly call `POST /api/notes` (create note) with a valid JWT and it will succeed  
+- An expired student can directly call `POST /api/focus-sessions` with a valid JWT and it will succeed
+
+The read-only mode enforcement exists **only in the frontend** (via `useCanWrite()` hook). Any student who bypasses the UI (e.g., with curl or a browser dev-tools fetch call) can freely write data regardless of subscription status.
+
+---
+
+### 13.3 🔵 `UpgradeModal` Missing on Focus Page and Subjects Page
+
+**Worklog reference:** Task ID 19 (Subscription Expiration) — "Visual indicators throughout UI"  
+**Files:** `src/app/focus/page.tsx`, `src/app/subjects/page.tsx`
+
+The `UpgradeModal` and `useCanWrite` subscription gate was added to these pages:
+- ✅ `/dashboard` — has `UpgradeModal`
+- ✅ `/planner` — has `UpgradeModal` + `canWrite` checks
+- ✅ `/notes` — has `UpgradeModal` + `canWrite` checks
+- ✅ `/private-lessons` — has `UpgradeModal` + `canWrite` checks
+- ✅ `/focus/history` — has `UpgradeModal`
+
+But these two key pages are **missing the gate**:
+- ❌ `/focus` (starting a focus session) — no `UpgradeModal`, no `canWrite` check. An expired user can start unlimited focus sessions.
+- ❌ `/subjects` (marking lesson progress: video/questions/revision) — no `UpgradeModal`, no `canWrite` check. An expired user can mark lessons as done.
+
+---
+
+### 13.4 🔵 Push Notifications Use Hardcoded Mock VAPID Key — Real Key Never Read
+
+**Worklog reference:** Task ID 19 (Remaining 9 Gaps) — "Web Push Notification opt-in UI - Already implemented"  
+**File:** `src/app/settings/page.tsx` line 284–285, `src/lib/env.ts`
+
+The settings page subscribes to push notifications using a hardcoded mock VAPID public key:
+
+```typescript
+// Mock VAPID keys (in production, these would be generated and stored securely)
+const MOCK_VAPID_PUBLIC_KEY = 'BNcR5d3Y9xW7vK2mF8nQ4jL6sT1hG3pA5bC8dE0fH2iJ4kL6mN8oP0qR2sT4uV6wX8yZ0'
+```
+
+The `NEXT_PUBLIC_VAPID_PUBLIC_KEY` environment variable is defined in `src/lib/env.ts` but the settings page **never reads it**. This means:
+1. Even if a real VAPID key pair is generated and configured in `.env`, the push subscription will be created with the mock key — it will appear to succeed but the subscription will be invalid and undeliverable.
+2. Any notification that tried to send (if the server-side push library were installed) would fail because the subscription endpoint was created with a different key than the server's private key.
+
+---
+
+### 13.5 🔵 XP Reward System is Decorative — No `totalXP` Field in User Model
+
+**Worklog reference:** Task ID 19 (Badges) — "XP rewards display", "xpReward" per badge  
+**Files:** `prisma/schema.prisma`, `src/components/badges/BadgesSection.tsx`
+
+The `Badge` model has a `xpReward` field (e.g., 10 XP for common badges, 100 XP for rare ones) and the `BadgesSection` component displays XP rewards. However:
+
+- The `User` model has **no `totalXP`, `xpBalance`, or `experiencePoints` field** in the schema
+- There is no API route or function that credits XP to a user
+- Even if badges were awarded (they aren't — see §5), the XP reward would never be applied anywhere
+- XP reward numbers shown to users are entirely decorative/misleading
+
+---
+
+### 13.6 🟡 Curriculum Import/Export Does Not Handle `xpPerLesson`
+
+**Worklog reference:** Task ID 15 (Curriculum Import/Export)  
+**Files:** `src/lib/curriculum-import.ts`, `src/lib/curriculum-export.ts`
+
+The `Subject` model has a `xpPerLesson` field (`Int @default(10)`) and the `Lesson` model also has a `duration` field. While `duration` is handled in the import/export, `xpPerLesson` is not present in either `curriculum-import.ts` or `curriculum-export.ts`. If an admin exports curriculum and re-imports it (e.g., to a new environment), all per-subject XP values are reset to the default of 10.
+
+---
+
+### 13.7 🟡 Study & Task Reminder Toggles Are Stored but Never Act
+
+**Worklog reference:** Task ID 20 (Missing UI Features) — "Functional notification toggles (study reminders, task reminders)"  
+**Files:** `prisma/schema.prisma`, `src/app/settings/page.tsx`, `src/app/api/user/settings/route.ts`
+
+The settings page has toggle switches for "Study Reminders" (`studyReminders`) and "Task Reminders" (`taskReminders`). The values are correctly stored in the `User` table. However:
+
+- No cron job exists that reads these flags and sends reminders
+- No push notification code reads these flags
+- No email code reads these flags
+- The toggles are purely cosmetic — they store a preference that is never consumed
+
+---
+
+### 13.8 🟡 Rate Limiting is Non-Functional in Serverless Without Redis
+
+**Worklog reference:** Task ID 9 (Rate Limiting)  
+**File:** `src/lib/rate-limit.ts`
+
+The worklog claims: *"In-memory rate limiting with configurable limits"*. This is accurate but the caveat is significant: in serverless environments (Vercel, AWS Lambda, Cloudflare Workers), every function invocation may get a fresh process — the in-memory `Map` is reset on every cold start.
+
+The rate limiter has a Redis fallback (`@upstash/redis`) but it requires configuring `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Without these variables, the in-memory fallback is used — and in serverless production deployments, this means rate limiting effectively doesn't work. A brute-force attacker hitting `/api/auth/login` in different geographic regions (which land on different function instances) would face no rate limiting at all.
+
+Additionally, rate limiting is **only applied to 3 routes** (login, register, refresh). Other attack-sensitive routes have no rate limiting:
+- `POST /api/auth/forgot-password` — no rate limit → can be used to spam password reset emails
+- Admin routes — no rate limit
+- Note creation — no rate limit
+
+---
+
+### 13.9 🟡 Ban Status Check Relies on Cookie — No Immediate API-Level Enforcement
+
+**Worklog reference:** Task ID 16 (Ban User Feature) — "Banned user login prevention", "Cookie-based banned status checking"  
+**Files:** `src/middleware.ts`, `src/app/api/admin/users/[id]/ban/route.ts`
+
+The ban check in middleware reads the `isBanned` cookie:
+
+```typescript
+function isUserBannedFromCookie(request: NextRequest): boolean {
+  return request.cookies.get('isBanned')?.value === 'true'
+}
+```
+
+When a user is banned by an admin, all their sessions are deleted (which is correct). However:
+1. The ban check only works at the middleware/page navigation level, not at the API request level. A banned user whose access token has not expired (valid for 15 minutes) can still call any API route directly.
+2. The `isBanned` cookie is set to `'false'` on login and never updated mid-session. If a user is banned while logged in, they won't see the ban until their current session cookies expire, or until they try to navigate to a new page through the middleware.
+3. There is no check against the database for real-time ban status in API routes.
+
+---
+
+### 13.10 🟡 Private Lessons Page Not in Main Student Navigation
+
+**Worklog reference:** Task ID 11 (Private Lessons) — "Integrated with existing navigation patterns"  
+**File:** `src/app/dashboard/page.tsx`
+
+The student navigation bar (`navItems` array) contains exactly 5 items:
+- Today (`/dashboard`)
+- Subjects (`/subjects`)
+- Planner (`/planner`)
+- Notes (`/notes`)
+- Insights (`/insights`)
+
+The `/private-lessons` page is **not in this navigation**. It is only reachable via a small "إدارة" link button inside the Planner page. Students who don't visit the Planner may never discover the Private Lessons feature. The worklog claims it was "integrated with existing navigation patterns" but the nav was not updated.
+
+---
+
+### 13.11 🟠 Dead Code: `useRouter` Import Left in Register Page After Task 17 Cleanup
+
+**Worklog reference:** Task ID 17 (Registration Flow Bug Fix) — "Replaced all `router.push()` with `window.location.href`"  
+**File:** `src/app/auth/register/page.tsx`
+
+The worklog states that all `router.push()` calls were replaced with `window.location.href`. The actual redirect on line 81 does use `window.location.href = '/onboarding'`. However, the file still contains:
+
+```typescript
+import { useRouter } from 'next/navigation'
+// ...
+const router = useRouter()
+```
+
+The `router` variable is declared but never used — dead code left behind from the cleanup. This is minor but reflects incomplete refactoring.
+
+---
+
+### 13.12 🟡 `forgot-password` Rate Limiting Missing
+
+**Worklog reference:** Task ID 9 (Rate Limiting) — lists `/api/auth/login`, `/api/auth/register`, `/api/auth/refresh` only  
+**File:** `src/app/api/auth/forgot-password/route.ts`
+
+The password reset route (`POST /api/auth/forgot-password`) has **no rate limiting**. An attacker can enumerate valid email addresses by hammering this endpoint, and can also use it to spam arbitrary email addresses with password reset emails. This is a common abuse vector and is not addressed by the current rate limiting implementation.
+
+---
+
+### 13.13 🟡 Subscription Context Auto-Refreshes But Login Doesn't Re-sync On New Tab
+
+**Worklog reference:** Task ID 19 (Subscription Expiration) — "Auto-refresh every 5 minutes"  
+**File:** `src/contexts/SubscriptionContext.tsx`
+
+The subscription context correctly refreshes every 5 minutes (`setInterval(refresh, 5 * 60 * 1000)`). However, when a student opens the app in a new browser tab, the context reads from cookies (set at login time, not updated until next refresh interval). If the student's subscription was activated by an admin between logins, they won't see the correct "active" status immediately in a new tab — only after the 5-minute refresh fires.
+
+This is a minor UX gap, not a security issue, but it means the read-only banner could show for up to 5 minutes after a subscription is manually activated by an admin.
+
+---
+
+### 13.14 🟡 `FEATURES_CHECKLIST.md` Total Count Updated Inconsistently
+
+**Worklog reference:** Task ID 20 — "Updated total features count to 197", but the current file header says "250 / 250 (100%)"
+
+The worklog for Task 20 says it updated the checklist to 197 total features. A later entry updated it again to claim 250/250. The checklist is maintained manually and its accuracy cannot be trusted.
+
+---
+
+## Section 14 — `FEATURES_CHECKLIST.md` Inaccuracies
 
 The checklist header states: `Total Features: 250 / Complete: 250 (100%)`
 
@@ -604,10 +821,16 @@ The following items are marked ✅ but are **not fully implemented:**
 | ✅ Welcome email | `sendWelcomeEmail()` exists but is never called |
 | ✅ Push notifications | Subscriptions saved but nothing is ever pushed |
 | ✅ Admin landing page content | Checklist does not mention this at all; page is fully hardcoded |
+| ✅ Note favorite/archive toggle | `isFavorite`/`isArchived` missing from PATCH schema; silently fail |
+| ✅ Subscription write protection | `requireWriteAccess()` exists but never called in any API route |
+| ✅ Push notification opt-in | Uses hardcoded mock VAPID key, not the env var |
+| ✅ XP rewards | `Badge.xpReward` shown in UI but no `User.totalXP` field exists |
+| ✅ Study/task reminder notifications | Preference stored in DB but no system sends reminders |
+| ✅ Private lessons in navigation | Page only reachable from Planner — not in main nav |
 
 ---
 
-## Section 14 — Quick Reference Table
+## Section 15 — Quick Reference Table
 
 | # | Severity | Category | Location | Description |
 |---|---|---|---|---|
@@ -647,7 +870,21 @@ The following items are marked ✅ but are **not fully implemented:**
 | 11.2 | 🟡 | DX | `prisma/seed.ts` | No note templates seeded |
 | 11.3 | 🟡 | DX | `prisma/seed.ts` | Default badge definitions not seeded |
 | 11.4 | 🟡 | DX | `examples/websocket/` | Unresolved TypeScript imports for `socket.io` packages |
+| **— Worklog Gaps —** | | | | |
+| 13.1 | 🔵 | Feature Broken | `src/app/api/notes/[id]/route.ts` | `isFavorite` & `isArchived` missing from PATCH schema — favorite toggle silently does nothing in DB; no archive toggle in NoteCard UI |
+| 13.2 | 🔵 | Feature Broken | `src/lib/subscription-check.ts` | `requireWriteAccess()` built but never called from any API route — subscription write gate is client-side only |
+| 13.3 | 🔵 | Feature Broken | `src/app/focus/page.tsx`, `src/app/subjects/page.tsx` | No `UpgradeModal` or `canWrite` check — expired users can start focus sessions and mark lessons unrestricted |
+| 13.4 | 🔵 | Feature Broken | `src/app/settings/page.tsx` line 285 | Push subscriptions use hardcoded mock VAPID key — `NEXT_PUBLIC_VAPID_PUBLIC_KEY` env var is never read |
+| 13.5 | 🔵 | Feature Broken | `prisma/schema.prisma` | `Badge.xpReward` shown in UI but no `User.totalXP` field exists — XP rewards are cosmetic only |
+| 13.6 | 🟡 | Incomplete | `src/lib/curriculum-import.ts`, `curriculum-export.ts` | `xpPerLesson` field not handled in curriculum import/export |
+| 13.7 | 🟡 | Incomplete | `src/app/api/user/settings/route.ts` | `studyReminders`/`taskReminders` flags stored in DB but no cron/push/email ever reads them |
+| 13.8 | ⚠️ | Security | `src/lib/rate-limit.ts` | In-memory rate limiting resets on every serverless cold start — effectively non-functional in production without Redis; `forgot-password` has no rate limiting at all |
+| 13.9 | ⚠️ | Security | `src/middleware.ts` | Ban check is cookie-only — banned user's valid JWT still works for up to 15 minutes at the API level |
+| 13.10 | 🟡 | Incomplete | `src/app/dashboard/page.tsx` | `/private-lessons` not in main student nav — only reachable via a link inside the Planner page |
+| 13.11 | 🟠 | Dead Code | `src/app/auth/register/page.tsx` | `useRouter` imported and `router` declared but never used — leftover from Task 17 cleanup |
+| 13.12 | 🟡 | Incomplete | `src/contexts/SubscriptionContext.tsx` | Subscription state from cookies can be stale for up to 5 min after admin activates a plan |
+| 13.13 | 🟠 | Inconsistency | `FEATURES_CHECKLIST.md` | Feature count changed from 197 (Task 20 entry) to 250 (final entry) without explanation — checklist count unreliable |
 
 ---
 
-*Report generated from manual code audit — February 2026 · branch `copilot/check-app-errors-and-features`.*
+*Report generated from manual code audit + worklog analysis — February 2026 · branch `copilot/check-app-errors-and-features`.*
