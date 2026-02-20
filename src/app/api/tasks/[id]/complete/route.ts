@@ -1,13 +1,14 @@
 /**
  * Task Complete API Route
  * 
- * Toggles a task's completion status
+ * Toggles a task's completion status and checks for badge awards
  */
 
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { updateStreakOnActivity } from '@/lib/streak'
+import { checkAndAwardBadges } from '@/lib/badge-awarding'
 
 export async function POST(
   request: Request,
@@ -98,15 +99,19 @@ export async function POST(
       return updatedTask
     })
 
-    // Update streak after successful transaction
+    // Update streak and check for badges after successful transaction
+    let newBadges: string[] = []
     if (newStatus === 'COMPLETED') {
       await updateStreakOnActivity(user.id)
+      // Check for badge awards
+      newBadges = await checkAndAwardBadges(user.id)
     }
 
     return NextResponse.json({
       success: true,
       task: result,
-      status: newStatus
+      status: newStatus,
+      newBadges // Include newly earned badges
     })
   } catch (error) {
     console.error('Error updating task:', error)

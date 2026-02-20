@@ -21,13 +21,15 @@ import {
   Mail,
   DollarSign,
   Flame,
-  Award
+  Award,
+  Globe
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 // Admin navigation items
 const adminNavItems = [
   { id: 'dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, href: '/admin' },
+  { id: 'landing-page', label: 'صفحة الهبوط', icon: Globe, href: '/admin/landing-page' },
   { id: 'users', label: 'المستخدمين', icon: Users, href: '/admin/users' },
   { id: 'streaks', label: 'المسارات', icon: Flame, href: '/admin/streaks' },
   { id: 'badges', label: 'الشارات', icon: Award, href: '/admin/badges' },

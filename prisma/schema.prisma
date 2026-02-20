@@ -992,3 +992,84 @@ enum ManualPaymentStatus {
   NEEDS_INFO       // Admin needs more information
   INFO_PROVIDED    // User provided additional info
 }
+
+// ============================================
+// LANDING PAGE CONTENT
+// ============================================
+
+/// Landing Page Content - Editable landing page sections
+model LandingPageContent {
+  id          String   @id @default(cuid())
+  
+  // Hero Section
+  heroTitle       String?  // Main headline
+  heroTitleEn     String?  // English version
+  heroSubtitle    String?  // Subtitle text
+  heroSubtitleEn  String?  // English version
+  heroCtaText     String?  // CTA button text
+  heroCtaTextEn   String?  // English version
+  
+  // Badge/Tagline
+  badgeText       String?  // Small badge above hero (e.g., "مصمم خصيصاً لطلاب الثانوية المصرية")
+  badgeTextEn     String?  // English version
+  
+  // Stats Section
+  stat1Value      String?  // e.g., "10K+"
+  stat1Label      String?  // e.g., "طالب نشط"
+  stat1LabelEn    String?  // English version
+  
+  stat2Value      String?
+  stat2Label      String?
+  stat2LabelEn    String?
+  
+  stat3Value      String?
+  stat3Label      String?
+  stat3LabelEn    String?
+  
+  stat4Value      String?
+  stat4Label      String?
+  stat4LabelEn    String?
+  
+  // Features Section Title
+  featuresTitle       String?
+  featuresTitleEn     String?
+  featuresSubtitle    String?
+  featuresSubtitleEn  String?
+  
+  // CTA Section
+  ctaTitle        String?
+  ctaTitleEn      String?
+  ctaSubtitle     String?
+  ctaSubtitleEn   String?
+  ctaButtonText   String?
+  ctaButtonTextEn String?
+  
+  // Footer
+  footerText      String?
+  footerTextEn    String?
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Landing Page Feature - Feature cards on landing page
+model LandingPageFeature {
+  id          String   @id @default(cuid())
+  
+  title       String   // Arabic title
+  titleEn     String?  // English version
+  description String   // Arabic description
+  descriptionEn String? // English version
+  icon        String   // Icon name (from lucide-react)
+  color       String   @default("text-primary") // Tailwind color class
+  
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([order])
+  @@index([isActive])
+}
