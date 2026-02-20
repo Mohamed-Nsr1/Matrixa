@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
 import { z } from 'zod'
+import type { Prisma } from '@prisma/client'
 
 // Query params schema
 const querySchema = z.object({
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const params = querySchema.parse(Object.fromEntries(searchParams))
 
-    const where: any = {}
+    const where: Prisma.UserWhereInput = {}
     
     if (params.search) {
       where.OR = [

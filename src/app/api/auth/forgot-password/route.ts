@@ -10,6 +10,7 @@ import { prisma } from '@/lib/db'
 import { z } from 'zod'
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
+import { sendPasswordResetEmail, isEmailConfigured } from '@/lib/email'
 
 const forgotPasswordSchema = z.object({
   email: z.string().email('البريد الإلكتروني غير صالح')
@@ -147,19 +148,19 @@ export async function POST(request: Request) {
         }
       })
 
-      // In production, send email with reset link
-      // For now, log the token (ONLY for development testing - remove in production)
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`[DEV ONLY] Password reset token for ${email}: ${token}`)
-        console.log(`[DEV ONLY] Reset URL: /auth/forgot-password?token=${token}`)
+      // Send password reset email
+      const emailSent = await sendPasswordResetEmail(email, token, user.fullName || undefined)
+      
+      // Log in development if email not configured
+      if (!emailSent.success && process.env.NODE_ENV === 'development') {
+        console.log('[DEV] Password reset email would be sent to:', email)
+        console.log('[DEV] Reset URL:', `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/auth/forgot-password?token=${token}`)
       }
-
-      // TODO: Send email with reset link
-      // await sendPasswordResetEmail(email, token)
 
       return NextResponse.json({
         success: true,
-        message: 'إذا كان البريد مسجلاً، ستصلك رسالة لإعادة تعيين كلمة المرور'
+        message: 'إذا كان البريد مسجلاً، ستصلك رسالة لإعادة تعيين كلمة المرور',
+        emailConfigured: isEmailConfigured()
       })
     }
   } catch (error) {

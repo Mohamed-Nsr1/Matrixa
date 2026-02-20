@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
+import { sendEmail, isEmailConfigured } from '@/lib/email'
 import { z } from 'zod'
 
 const sendSchema = z.object({
@@ -25,6 +26,12 @@ function replaceVariables(content: string, variables: Record<string, string>): s
   return result
 }
 
+// Define proper type for where clause
+interface UserWhereClause {
+  role: 'STUDENT'
+  id?: { in: string[] }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser()
@@ -36,10 +43,9 @@ export async function POST(request: NextRequest) {
     const data = sendSchema.parse(body)
 
     // Get recipients based on filter
-    let where: any = { role: 'STUDENT' }
+    const where: UserWhereClause = { role: 'STUDENT' }
     
     if (data.recipientFilter === 'active') {
-      // Get users with active subscriptions
       const activeSubscriptions = await prisma.subscription.findMany({
         where: { status: 'ACTIVE' },
         select: { userId: true }
@@ -93,10 +99,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create email logs and simulate sending
-    // In a real application, you would integrate with an email service like SendGrid, Mailgun, etc.
+    // Send emails and log results
     let sent = 0
     let failed = 0
+    const emailEnabled = isEmailConfigured()
 
     for (const recipient of recipients) {
       try {
@@ -109,8 +115,20 @@ export async function POST(request: NextRequest) {
         const finalSubject = replaceVariables(subject, variables)
         const finalBody = replaceVariables(emailBody, variables)
 
-        // In production, you would send the email here
-        // For now, we just log it
+        // Send email if SMTP is configured
+        if (emailEnabled) {
+          const result = await sendEmail({
+            to: recipient.email,
+            subject: finalSubject,
+            html: finalBody
+          })
+
+          if (!result.success) {
+            throw new Error(result.error || 'Failed to send email')
+          }
+        }
+
+        // Log success
         await prisma.emailLog.create({
           data: {
             templateId: template?.id || null,
@@ -126,8 +144,7 @@ export async function POST(request: NextRequest) {
 
         sent++
       } catch (emailError) {
-        console.error(`Failed to send to ${recipient.email}:`, emailError)
-        
+        // Log failure
         await prisma.emailLog.create({
           data: {
             templateId: template?.id || null,
@@ -149,7 +166,8 @@ export async function POST(request: NextRequest) {
       success: true, 
       sent,
       failed,
-      total: recipients.length
+      total: recipients.length,
+      emailConfigured: emailEnabled
     })
   } catch (error) {
     console.error('Send email error:', error)
