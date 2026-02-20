@@ -142,8 +142,9 @@ const noteColors = [
 
 export default function NotesPage() {
   const { toast } = useToast()
-  const { canWrite, requireWrite, isReadOnly, getFeatureLimit, isActive, isInTrial, isInGracePeriod } = useCanWrite()
+  const { canWrite, requireWrite, isReadOnly, isActive, isInTrial, isInGracePeriod } = useCanWrite()
   const subscription = useSubscription()
+  const getFeatureLimit = subscription.getFeatureLimit
   const [user, setUser] = useState<User | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
@@ -789,7 +790,7 @@ export default function NotesPage() {
                           key={color.value}
                           onClick={() => setSelectedColor(color.value)}
                           className={`w-6 h-6 rounded ${selectedColor === color.value ? 'ring-2 ring-violet-500' : ''}`}
-                          style={{ backgroundColor: color.value }}
+                          style={{ backgroundColor: color.value! }}
                         />
                       ))}
                     </div>

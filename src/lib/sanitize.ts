@@ -5,7 +5,7 @@
  * Used for sanitizing user-generated HTML content like notes.
  */
 
-import DOMPurify from 'dompurify'
+import DOMPurify from 'isomorphic-dompurify'
 
 // Allowed HTML tags for rich text content
 const ALLOWED_TAGS = [
@@ -35,7 +35,7 @@ export function sanitizeHtml(html: string): string {
   }
 
   // Configure DOMPurify
-  const config: DOMPurify.Config = {
+  const config = {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
     ALLOW_DATA_ATTR: false,
@@ -45,7 +45,7 @@ export function sanitizeHtml(html: string): string {
     FORCE_BODY: true, // Treat input as body content
   }
 
-  return DOMPurify.sanitize(html, config)
+  return DOMPurify.sanitize(html, config) as string
 }
 
 /**

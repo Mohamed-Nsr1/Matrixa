@@ -78,13 +78,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Get template if specified
-    let template = null
+    let template: { id: string; subject: string; subjectAr: string | null; body: string; bodyAr: string | null } | null = null
     let subject = data.customSubject || 'رسالة من Matrixa'
     let emailBody = data.customBody || '<p>رسالة من Matrixa</p>'
 
     if (data.templateId) {
       template = await prisma.emailTemplate.findUnique({
-        where: { id: data.templateId }
+        where: { id: data.templateId },
+        select: { id: true, subject: true, subjectAr: true, body: true, bodyAr: true }
       })
       if (template) {
         subject = template.subjectAr || template.subject

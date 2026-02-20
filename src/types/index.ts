@@ -238,7 +238,7 @@ export interface NoteFrontend {
   content: string
   subjectId: string | null
   lessonId: string | null
-  folderId: string | null
+  folderId?: string | null  // Made optional - notes don't require a folder
   color?: string | null
   isPinned?: boolean
   isFavorite?: boolean

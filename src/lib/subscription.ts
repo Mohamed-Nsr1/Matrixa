@@ -529,7 +529,7 @@ export async function activateSubscription(
   await prisma.subscription.updateMany({
     where: { 
       userId,
-      status: { in: ['TRIAL', 'ACTIVE', 'GRACE_PERIOD'] }
+      status: { in: ['TRIAL', 'ACTIVE'] }
     },
     data: { status: 'CANCELLED' }
   })

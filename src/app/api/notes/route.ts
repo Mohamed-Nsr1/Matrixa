@@ -195,14 +195,14 @@ export async function POST(request: Request) {
     }
 
     // Process tags
-    const tagOperations = []
+    const tagOperations: { tagId: string }[] = []
     if (data.tags && data.tags.length > 0) {
       for (const tagName of data.tags) {
         // Find or create tag
         let tag = await prisma.noteTag.findFirst({
           where: {
             userId: user.id,
-            name: { equals: tagName, mode: 'insensitive' }
+            name: { equals: tagName }
           }
         })
 
@@ -215,9 +215,7 @@ export async function POST(request: Request) {
           })
         }
 
-        tagOperations.push({
-          tag: { connect: { id: tag.id } }
-        })
+        tagOperations.push({ tagId: tag.id })
       }
     }
 
@@ -237,7 +235,7 @@ export async function POST(request: Request) {
         readingTime,
         tags: {
           create: tagOperations.map(op => ({
-            tag: op.tag
+            tag: { connect: { id: op.tagId } }
           }))
         }
       },

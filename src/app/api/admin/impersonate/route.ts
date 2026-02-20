@@ -43,15 +43,9 @@ export async function POST(request: Request) {
     modifiedRequest.headers.set('x-admin-id', user.id)
 
     // Check rate limit
-    const rateLimitResult = impersonationRateLimit.check(modifiedRequest as unknown as Parameters<typeof impersonationRateLimit.check>[0])
+    const rateLimitResult = await impersonationRateLimit.check(modifiedRequest as unknown as Parameters<typeof impersonationRateLimit.check>[0])
     if (!rateLimitResult.success) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: 'تم تجاوز عدد المحاولات المسموح بها. حاول مرة أخرى بعد ساعة.' 
-        },
-        { status: 429 }
-      )
+      return rateLimitResult.response
     }
 
     const { userId } = await request.json()

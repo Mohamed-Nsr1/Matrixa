@@ -16,7 +16,7 @@ const webhookSchema = z.object({
   planId: z.string(),
   success: z.boolean(),
   // Paymob webhook fields
-  obj: z.record(z.unknown()).optional(),
+  obj: z.record(z.string(), z.unknown()).optional(),
   hmac: z.string().optional(),
 })
 

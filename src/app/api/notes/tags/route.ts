@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     const existingTag = await prisma.noteTag.findFirst({
       where: { 
         userId: user.id,
-        name: { equals: name, mode: 'insensitive' }
+        name: { equals: name }
       }
     })
 
