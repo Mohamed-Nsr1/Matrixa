@@ -153,6 +153,7 @@ export async function clearAuthCookies(): Promise<void> {
 
 /**
  * Get current user from request
+ * Note: This returns the user even if banned. Check user.isBanned in your route handler.
  */
 export async function getCurrentUser(): Promise<User | null> {
   try {
@@ -176,6 +177,18 @@ export async function getCurrentUser(): Promise<User | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * Get current active (non-banned) user from request
+ * Returns null if user is banned or not found
+ */
+export async function getCurrentActiveUser(): Promise<User | null> {
+  const user = await getCurrentUser()
+  if (!user || user.isBanned) {
+    return null
+  }
+  return user
 }
 
 /**

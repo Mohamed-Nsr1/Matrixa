@@ -52,6 +52,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if user is banned
+    if (user.isBanned) {
+      // Delete the session
+      await prisma.session.delete({
+        where: { refreshToken }
+      }).catch(() => {})
+
+      return NextResponse.json(
+        { success: false, error: 'Account has been suspended' },
+        { status: 403 }
+      )
+    }
+
     // Get device fingerprint
     const deviceId = getDeviceFingerprint(
       request.headers.get('user-agent') || '',

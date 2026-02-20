@@ -67,8 +67,8 @@ export async function GET(request: NextRequest) {
       isArchived?: boolean
       tags?: { some: { tagId: string } }
       OR?: Array<{
-        title?: { contains: string; mode: 'insensitive' }
-        content?: { contains: string; mode: 'insensitive' }
+        title?: { contains: string }
+        content?: { contains: string }
       }>
     } = { 
       userId: user.id,
@@ -95,11 +95,11 @@ export async function GET(request: NextRequest) {
       where.isFavorite = true
     }
 
-    // Add search functionality
+    // Add search functionality (SQLite doesn't support mode: insensitive)
     if (search && search.trim()) {
       where.OR = [
-        { title: { contains: search.trim(), mode: 'insensitive' } },
-        { content: { contains: search.trim(), mode: 'insensitive' } }
+        { title: { contains: search.trim() } },
+        { content: { contains: search.trim() } }
       ]
     }
 
